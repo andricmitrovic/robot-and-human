@@ -8,6 +8,7 @@ import re
 from matplotlib import pyplot as plt
 from sklearn.linear_model import LinearRegression
 
+
 def clean(x):
     x = x.strip('[]').strip()
     x = re.sub(r'\s+', ' ', x)
@@ -24,44 +25,66 @@ def sum_times(arr):
     return prefix_sum
 
 
+def remove_zeroes(arr):
+    return [num for num in arr if num != 0.0]
+
+
+def check_array_lengths(row):
+    # Get lengths of all arrays in the row
+    array_lengths = [len(arr) for arr in row]
+
+    # Check if all lengths are the same
+    return all(length == array_lengths[0] for length in array_lengths)
+
+
 def prep_data(path):
     df = pd.read_csv(path)
     df = df[['opTaskToSave', 'timetoSave', 'mwtoSave']]
+    # print(df.iloc[3].to_dict())
 
     df['timetoSave'] = df['timetoSave'].apply(lambda x: re.sub(r'\s+', ',', x))
     df['timetoSave'] = df['timetoSave'].apply(lambda x: np.squeeze(ast.literal_eval(x)))
+    df['timetoSave'] = df['timetoSave'].apply(remove_zeroes)
 
     df['opTaskToSave'] = df['opTaskToSave'].apply(lambda x: clean(x))
 
     df['mwtoSave'] = df['mwtoSave'].apply(lambda x: re.sub(r'\s+', ',', x))
     df['mwtoSave'] = df['mwtoSave'].apply(lambda x: np.squeeze(ast.literal_eval(x)))
+    df['mwtoSave'] = df['mwtoSave'].apply(remove_zeroes)
 
     # Apply the prefix sum function to each row in the DataFrame
     df['ExecTimeEnd'] = df['timetoSave'].apply(sum_times)
 
+    # print(df.iloc[3].to_dict())
+    # Sanity check
+    result = df.apply(check_array_lengths, axis=1)
+    if not result.all():
+        error_message = "Arrays in the same rows have different lengths."
+        raise ValueError(error_message)
     return df
 
-def histogram_exec_times_all():
-    # Directory containing CSV files
-    path = './data/csv/RESCH'
 
-    all_files = glob.glob(os.path.join(path, "*.csv"))
-    df = pd.concat((pd.read_csv(f) for f in all_files), ignore_index=True)
-
-    df = df[['opTaskToSave', 'timetoSave']]
-
-    df['timetoSave'] = df['timetoSave'].apply(lambda x: re.sub(r'\s+', ',', x))
-    df['timetoSave'] = df['timetoSave'].apply(lambda x: np.squeeze(ast.literal_eval(x)))
-
-    # Compute the average of the first values across the entire column
-    first_values = df['timetoSave'].apply(lambda x: x[0])
-
-    # Plot the histogram of the first values
-    plt.hist(first_values, bins=30, color='skyblue', edgecolor='black')
-    plt.xlabel('Exec time')
-    plt.ylabel('Frequency')
-    plt.title('Histogram of Task 1')
-    plt.show()
+# def histogram_exec_times_all():
+#     # Directory containing CSV files
+#     path = './data/csv/RESCH'
+#
+#     all_files = glob.glob(os.path.join(path, "*.csv"))
+#     df = pd.concat((pd.read_csv(f) for f in all_files), ignore_index=True)
+#
+#     df = df[['opTaskToSave', 'timetoSave']]
+#
+#     df['timetoSave'] = df['timetoSave'].apply(lambda x: re.sub(r'\s+', ',', x))
+#     df['timetoSave'] = df['timetoSave'].apply(lambda x: np.squeeze(ast.literal_eval(x)))
+#
+#     # Compute the average of the first values across the entire column
+#     first_values = df['timetoSave'].apply(lambda x: x[0])
+#
+#     # Plot the histogram of the first values
+#     plt.hist(first_values, bins=30, color='skyblue', edgecolor='black')
+#     plt.xlabel('Exec time')
+#     plt.ylabel('Frequency')
+#     plt.title('Histogram of Task 1')
+#     plt.show()
 
 
 def histogram_exec_times_op(operator):
@@ -90,7 +113,7 @@ def histogram_exec_times_op(operator):
             task_data[str(tasks[i])].append(times[i])
 
     # Create output destination
-    dir_path = f"./output/exec_time_plots/operator_{operator}"
+    dir_path = f"./output/exec_time_frequency/operator_{operator}"
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
 
@@ -100,11 +123,11 @@ def histogram_exec_times_op(operator):
         if not values:
             continue
         plt.figure(figsize=(8, 6))
-        plt.hist(values, bins=bin_count)
+        hist_values, bin_edges, _ = plt.hist(values, bins=bin_count, color='skyblue', edgecolor='black')
         plt.title(f'Task {key}')
-        plt.xlabel('Values')
+        plt.xlabel('Execution time')
         plt.ylabel('Frequency')
-
+        plt.xticks(bin_edges)
         plt.savefig(f'{dir_path}/task_{key}.png')
         plt.close()
 
@@ -136,7 +159,7 @@ def visualize_2d_time_stress(operator):
             task_data[str(tasks[i])].append((times[i], stress[i]))
 
     # Create output destination
-    dir_path = f"./output/visualize_2d_stress_time/operator_{operator}"
+    dir_path = f"./output/exec_time_stress_frequency/operator_{operator}"
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
 
@@ -172,7 +195,6 @@ def visualize_strees_over_time(operator):
     path = './data/csv/RESCH/P0' + str(operator) + '.csv'
     df = prep_data(path)
     df = df[['ExecTimeEnd', 'mwtoSave']]
-
 
     combined_data = []
     for index, row in df.iterrows():
@@ -213,10 +235,58 @@ def visualize_strees_over_time(operator):
     plt.grid(True)
 
     # Create output destination
-    dir_path = f"./output/visualize_stress_totaltime/"
+    dir_path = f"./output/stress_over_time/"
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
     plt.savefig(f'{dir_path}/operator_{operator}.png')
+
+
+def exec_time_per_cycle(operator):
+    # Get data
+    path = './data/csv/RESCH/P0' + str(operator) + '.csv'
+    df = prep_data(path)
+
+    # Collect task exec times
+    task_data = {'1': [],
+                 '2': [],
+                 '3': [],
+                 '4': [],
+                 '5': [],
+                 '6': [],
+                 '7': [],
+                 '8': [],
+                 '9': [],
+                 '10': [],
+                 '12': [],
+                 '13': [],
+                 '14': []}
+    for index, row in df.iterrows():
+        tasks = row['opTaskToSave']
+        times = row['timetoSave']
+        for i in range(len(tasks)):
+            task_data[str(tasks[i])].append((times[i], index))
+
+    # Create output destination
+    dir_path = f"./output/exec_time_per_cycle/operator_{operator}"
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
+
+    for key, values in task_data.items():
+        if not values:
+            continue
+
+        times, cycle = zip(*values)
+        plt.figure(figsize=(8, 6))
+        plt.plot(cycle, times)
+        plt.scatter(cycle, times, color='red')
+        plt.title(f'Task {key}')
+        plt.xlabel('Cycle')
+        plt.ylabel('Exec time')
+        plt.xticks(cycle)
+
+        plt.savefig(f'{dir_path}/task_{key}.png')
+        plt.close()
+
 
 
 if __name__ == '__main__':
@@ -237,4 +307,6 @@ if __name__ == '__main__':
         histogram_exec_times_op(operator = i)
         visualize_2d_time_stress(operator = i)
         visualize_strees_over_time(operator = i)
+        exec_time_per_cycle(operator = i)
 
+    # exec_time_per_cycle(operator = 1)
