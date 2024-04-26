@@ -7,7 +7,7 @@ import ast
 import re
 from matplotlib import pyplot as plt
 from sklearn.linear_model import LinearRegression
-
+from mpl_toolkits.mplot3d import Axes3D
 
 def clean(x):
     x = x.strip('[]').strip()
@@ -64,27 +64,27 @@ def prep_data(path):
     return df
 
 
-# def histogram_exec_times_all():
-#     # Directory containing CSV files
-#     path = './data/csv/RESCH'
-#
-#     all_files = glob.glob(os.path.join(path, "*.csv"))
-#     df = pd.concat((pd.read_csv(f) for f in all_files), ignore_index=True)
-#
-#     df = df[['opTaskToSave', 'timetoSave']]
-#
-#     df['timetoSave'] = df['timetoSave'].apply(lambda x: re.sub(r'\s+', ',', x))
-#     df['timetoSave'] = df['timetoSave'].apply(lambda x: np.squeeze(ast.literal_eval(x)))
-#
-#     # Compute the average of the first values across the entire column
-#     first_values = df['timetoSave'].apply(lambda x: x[0])
-#
-#     # Plot the histogram of the first values
-#     plt.hist(first_values, bins=30, color='skyblue', edgecolor='black')
-#     plt.xlabel('Exec time')
-#     plt.ylabel('Frequency')
-#     plt.title('Histogram of Task 1')
-#     plt.show()
+def histogram_exec_times_all():
+    # Directory containing CSV files
+    path = './data/csv/RESCH'
+
+    all_files = glob.glob(os.path.join(path, "*.csv"))
+    df = pd.concat((pd.read_csv(f) for f in all_files), ignore_index=True)
+
+    df = df[['opTaskToSave', 'timetoSave']]
+
+    df['timetoSave'] = df['timetoSave'].apply(lambda x: re.sub(r'\s+', ',', x))
+    df['timetoSave'] = df['timetoSave'].apply(lambda x: np.squeeze(ast.literal_eval(x)))
+
+    # Compute the average of the first values across the entire column
+    first_values = df['timetoSave'].apply(lambda x: x[0])
+
+    # Plot the histogram of the first values
+    plt.hist(first_values, bins=30, color='skyblue', edgecolor='black')
+    plt.xlabel('Exec time')
+    plt.ylabel('Frequency')
+    plt.title('Histogram of Task 1')
+    plt.show()
 
 
 def histogram_exec_times_op(operator):
@@ -132,7 +132,7 @@ def histogram_exec_times_op(operator):
         plt.close()
 
 
-def visualize_2d_time_stress(operator):
+def visualize_3d_time_stress(operator):
     # Get data
     path = './data/csv/RESCH/P0' + str(operator) + '.csv'
     df = prep_data(path)
@@ -170,21 +170,36 @@ def visualize_2d_time_stress(operator):
             continue
 
         times, mwtoSave = zip(*values)
+        times = np.array(times)
+        mwtoSave = np.array(mwtoSave)
 
-        plt.figure(figsize=(8, 6))
-        plt.hist2d(times, mwtoSave, bins=(bin_count, bin_count), cmap='viridis')
-        plt.colorbar(label='Frequency')
-        plt.title(f'Task {key}')
-        plt.xlabel('Time')
-        plt.ylabel('Stress')
+        # Create 2D histogram
+        hist, x_edges, y_edges = np.histogram2d(times, mwtoSave, bins=(bin_count, bin_count))
 
-        # Make a grid
-        x_edges = np.histogram_bin_edges(times, bins=bin_count)
-        y_edges = np.histogram_bin_edges(mwtoSave, bins=bin_count)
+        # Create meshgrid for plotting
+        x_data, y_data = np.meshgrid(np.arange(hist.shape[1]), np.arange(hist.shape[0]))
 
-        plt.xticks(x_edges, rotation=45)
-        plt.yticks(y_edges)
-        plt.grid(True, linestyle='--', alpha=0.5)
+        # Flatten data
+        x_data = x_data.flatten()
+        y_data = y_data.flatten()
+        z_data = hist.flatten()
+
+        # Plot 3D histogram
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        ax.bar3d(x_data, y_data, np.zeros(len(z_data)), 1, 1, z_data, color=plt.cm.magma(z_data/np.max(z_data)))
+
+        # Set labels and title
+        ax.set_xlabel('Time')
+        ax.set_ylabel('Stress')
+        ax.set_zlabel('Frequency')
+        ax.set_title('3D Histogram')
+
+        # Set tick positions and labels
+        ax.set_xticks(np.arange(bin_count))
+        ax.set_yticks(np.arange(bin_count))
+        ax.set_xticklabels(np.round(x_edges[:-1], 2))  # Adjust to match the number of bins
+        ax.set_yticklabels(np.round(y_edges[:-1], 2))  # Adjust to match the number of bins
 
         plt.savefig(f'{dir_path}/task_{key}.png')
         plt.close()
@@ -288,7 +303,6 @@ def exec_time_per_cycle(operator):
         plt.close()
 
 
-
 if __name__ == '__main__':
     # standar_exec_times = {'1': 0.5,
     #             '2': 0.667,
@@ -305,8 +319,10 @@ if __name__ == '__main__':
     #             '14': 1.0}
     for i in [1, 2, 3, 4, 6, 7]:            # todo: some error generating csv for operator 5
         histogram_exec_times_op(operator = i)
-        visualize_2d_time_stress(operator = i)
+        visualize_3d_time_stress(operator = i)
         visualize_strees_over_time(operator = i)
         exec_time_per_cycle(operator = i)
 
-    # exec_time_per_cycle(operator = 1)
+
+    # state = {tasks done and not done}, which one is human doing, since when
+    # actions = robot performs
