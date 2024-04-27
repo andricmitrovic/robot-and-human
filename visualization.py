@@ -8,21 +8,14 @@ import re
 from matplotlib import pyplot as plt
 from sklearn.linear_model import LinearRegression
 from mpl_toolkits.mplot3d import Axes3D
+from sklearn.preprocessing import PolynomialFeatures
+
 
 def clean(x):
     x = x.strip('[]').strip()
     x = re.sub(r'\s+', ' ', x)
     x = x.split()
     return [int(num) for num in x]
-
-
-def sum_times(arr):
-    prefix_sum = []
-    current_sum = 0
-    for num in arr:
-        current_sum += num
-        prefix_sum.append(current_sum)
-    return prefix_sum
 
 
 def remove_zeroes(arr):
@@ -51,9 +44,6 @@ def prep_data(path):
     df['mwtoSave'] = df['mwtoSave'].apply(lambda x: re.sub(r'\s+', ',', x))
     df['mwtoSave'] = df['mwtoSave'].apply(lambda x: np.squeeze(ast.literal_eval(x)))
     df['mwtoSave'] = df['mwtoSave'].apply(remove_zeroes)
-
-    # Apply the prefix sum function to each row in the DataFrame
-    df['ExecTimeEnd'] = df['timetoSave'].apply(sum_times)
 
     # print(df.iloc[3].to_dict())
     # Sanity check
@@ -209,41 +199,78 @@ def visualize_strees_over_time(operator):
     # Get data
     path = './data/csv/RESCH/P0' + str(operator) + '.csv'
     df = prep_data(path)
-    df = df[['ExecTimeEnd', 'mwtoSave']]
+    df = df[['timetoSave', 'mwtoSave']]
 
-    combined_data = []
+    stress_history = []
+    times_history = []
+    cycle_end_ids = []
+    curr_time = 0
     for index, row in df.iterrows():
-        combined_data.extend(zip(row['ExecTimeEnd'], row['mwtoSave']))
-
-    filtered_data = [(et, mw) for et, mw in combined_data if mw != 0]
-    filtered_exec_times, filtered_mwtosave = zip(*filtered_data)
+        times = row['timetoSave']
+        stress = row['mwtoSave']
+        for i in range(len(times)):
+            curr_time += times[i]
+            times_history.append(curr_time)
+            stress_history.append(stress[i])
+        cycle_end_ids.append(len(times_history))
 
     # Plotting scatter
-    plt.figure(figsize=(10, 6))
-    plt.scatter(filtered_exec_times, filtered_mwtosave, marker='o', color='blue', alpha=0.8)
+    plt.figure(figsize=(20, 5))
+    plt.scatter(times_history, stress_history, marker='o', color='blue', alpha=0.8)
     plt.title('Stress over time')
     plt.xlabel('End time of the task')
     plt.ylabel('Stress')
 
+    # Plot cycle separators
+    for point_id in cycle_end_ids:
+        point_x = times_history[point_id-1]
+        plt.axvline(x=point_x, color='green', linestyle='--', linewidth=1)
+    plt.axvline(x=float('inf'), color='green', linestyle='--', linewidth=1, label='End of cycle')
 
     #############
+    # Perform Polynomial Regression
+    degree = 3  # Degree of polynomial
+    polynomial_features = PolynomialFeatures(degree=degree)
+    X_poly = polynomial_features.fit_transform(np.array(times_history).reshape(-1, 1))
 
-    # Reshape the data for LinearRegression
-    X = np.array(filtered_exec_times).reshape(-1, 1)  # Reshape to a column vector
-    y = np.array(filtered_mwtosave)
-
-    # Fit linear regression model
+    # Fit polynomial regression model
     model = LinearRegression()
-    model.fit(X, y)
+    model.fit(X_poly, stress_history)
 
     # Predict y values using the model
-    y_pred = model.predict(X)
+    y_pred = model.predict(X_poly)
 
-    # Plot the scatter plot
-    plt.scatter(filtered_exec_times, filtered_mwtosave, label='Data Points')
+    # Sort the values for plotting
+    sorted_zip = sorted(zip(times_history, y_pred))
+    times_history, y_pred = zip(*sorted_zip)
 
     # Plot the regression line
-    plt.plot(filtered_exec_times, y_pred, color='red', label='Linear Regression')
+    plt.plot(times_history, y_pred, color='red', label=f'Polynomial Regression (Degree {degree})')
+    ############
+
+    # Perform Polynomial Regression for each cycle
+    degree = 1  # Degree of polynomial
+    for i in range(len(cycle_end_ids)):
+        start_idx = 0 if i == 0 else cycle_end_ids[i - 1]
+        end_idx = cycle_end_ids[i]
+        cycle_times = times_history[start_idx:end_idx]
+        cycle_stress = stress_history[start_idx:end_idx]
+
+        polynomial_features = PolynomialFeatures(degree=degree)
+        X_poly = polynomial_features.fit_transform(np.array(cycle_times).reshape(-1, 1))
+
+        # Fit polynomial regression model
+        model = LinearRegression()
+        model.fit(X_poly, cycle_stress)
+
+        # Predict y values using the model
+        y_pred = model.predict(X_poly)
+
+        # Plot the regression line for the current cycle
+        if i == 0:
+            plt.plot(cycle_times, y_pred, color='orange', label = f'Cycle Polynomial Regression (Degree {degree})')
+        else:
+            plt.plot(cycle_times, y_pred, color='orange')
     ############
 
     plt.legend()
