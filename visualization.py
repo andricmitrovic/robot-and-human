@@ -1,36 +1,9 @@
 import numpy as np
-import pandas as pd
 import os
-import glob
-import ast
-import re
 from matplotlib import pyplot as plt
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
 from utils import prep_data
-
-
-def histogram_exec_times_all():
-    # Directory containing CSV files
-    path = './data/csv/RESCH'
-
-    all_files = glob.glob(os.path.join(path, "*.csv"))
-    df = pd.concat((pd.read_csv(f) for f in all_files), ignore_index=True)
-
-    df = df[['opTaskToSave', 'timetoSave']]
-
-    df['timetoSave'] = df['timetoSave'].apply(lambda x: re.sub(r'\s+', ',', x))
-    df['timetoSave'] = df['timetoSave'].apply(lambda x: np.squeeze(ast.literal_eval(x)))
-
-    # Compute the average of the first values across the entire column
-    first_values = df['timetoSave'].apply(lambda x: x[0])
-
-    # Plot the histogram of the first values
-    plt.hist(first_values, bins=30, color='skyblue', edgecolor='black')
-    plt.xlabel('Exec time')
-    plt.ylabel('Frequency')
-    plt.title('Histogram of Task 1')
-    plt.show()
 
 
 def histogram_exec_times_op(operator):
@@ -237,7 +210,7 @@ def visualize_strees_over_time(operator):
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
     plt.savefig(f'{dir_path}/operator_{operator}.png')
-
+    plt.close()
 
 def exec_time_per_cycle(operator):
     # Get data
