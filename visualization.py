@@ -1,12 +1,12 @@
 import numpy as np
 import os
 from matplotlib import pyplot as plt
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression, RANSACRegressor
 from sklearn.preprocessing import PolynomialFeatures
 from utils import prep_data
 
 
-def histogram_exec_times_op(operator):
+def histogram_exec_times_op(operator, normalize = True):
     # Get data
     path = './data/csv/RESCH/P0' + str(operator) + '.csv'
     df = prep_data(path)
@@ -38,20 +38,31 @@ def histogram_exec_times_op(operator):
 
     # Create histogram for each task
     bin_count = 10
+    bin_width = 0.5
+    half_width = bin_width * (bin_count // 2)
+    bins = np.linspace(-half_width, half_width, bin_count + 1)
     for key, values in task_data.items():
         if not values:
             continue
+        times = np.array(values)
+        if normalize and len(times) > 1:
+            mean = np.mean(times)
+            std = np.std(times)
+            times = (times-mean) / std
+
         plt.figure(figsize=(8, 6))
-        hist_values, bin_edges, _ = plt.hist(values, bins=bin_count, color='skyblue', edgecolor='black')
+        hist_values, bin_edges, _ = plt.hist(times, bins=bins, color='skyblue', edgecolor='black')
         plt.title(f'Task {key}')
-        plt.xlabel('Execution time')
+        plt.xlabel('Normalized execution time')
         plt.ylabel('Frequency')
         plt.xticks(bin_edges)
+        # bin_width = bin_edges[1] - bin_edges[0]
+        # plt.xticks(np.arange(-bin_width * bin_count / 2, bin_width * (bin_count / 2 + 1), bin_width))
         plt.savefig(f'{dir_path}/task_{key}.png')
         plt.close()
 
 
-def visualize_3d_time_stress(operator):
+def visualize_3d_time_stress(operator, normalize = True):
     # Get data
     path = './data/csv/RESCH/P0' + str(operator) + '.csv'
     df = prep_data(path)
@@ -84,16 +95,24 @@ def visualize_3d_time_stress(operator):
 
     # Create 2D histogram for each task
     bin_count = 4
+    bin_width = 1
+    half_width = bin_width * (bin_count // 2)
+    bins = np.linspace(-half_width, half_width, bin_count + 1)
     for key, values in task_data.items():
         if not values:
             continue
 
         times, mwtoSave = zip(*values)
         times = np.array(times)
+        if normalize and len(times) > 1:
+            mean = np.mean(times)
+            std = np.std(times)
+            times = (times - mean) / std
+
         mwtoSave = np.array(mwtoSave)
 
         # Create 2D histogram
-        hist, x_edges, y_edges = np.histogram2d(times, mwtoSave, bins=(bin_count, bin_count))
+        hist, x_edges, y_edges = np.histogram2d(times, mwtoSave, bins=(bins, bin_count))
 
         # Create meshgrid for plotting
         x_data, y_data = np.meshgrid(np.arange(hist.shape[1]), np.arange(hist.shape[0]))
@@ -109,7 +128,7 @@ def visualize_3d_time_stress(operator):
         ax.bar3d(x_data, y_data, np.zeros(len(z_data)), 1, 1, z_data, color=plt.cm.magma(z_data/np.max(z_data)))
 
         # Set labels and title
-        ax.set_xlabel('Time')
+        ax.set_xlabel('Normalized Exec Time')
         ax.set_ylabel('Stress')
         ax.set_zlabel('Frequency')
         ax.set_title('3D Histogram')
@@ -155,6 +174,24 @@ def visualize_strees_over_time(operator):
         point_x = times_history[point_id-1]
         plt.axvline(x=point_x, color='green', linestyle='--', linewidth=1)
     plt.axvline(x=float('inf'), color='green', linestyle='--', linewidth=1, label='End of cycle')
+
+    #############
+    # RANSAC Regression
+    ransac = RANSACRegressor()
+    X = np.array(times_history).reshape(-1, 1)
+    y = np.array(stress_history)
+    ransac.fit(X, y)
+
+    # Predict y values using the RANSAC model
+    y_pred_ransac = ransac.predict(X)
+
+    # Sort the values for plotting
+    sorted_zip = sorted(zip(times_history, y_pred_ransac))
+    times_history, y_pred_ransac = zip(*sorted_zip)
+
+    # Plot the RANSAC regression line
+    plt.plot(times_history, y_pred_ransac, color='purple', label='RANSAC Regression', linewidth=2)
+    ############
 
     #############
     # Perform Polynomial Regression
@@ -212,7 +249,8 @@ def visualize_strees_over_time(operator):
     plt.savefig(f'{dir_path}/operator_{operator}.png')
     plt.close()
 
-def exec_time_per_cycle(operator):
+
+def exec_time_per_cycle(operator, normalize = True):
     # Get data
     path = './data/csv/RESCH/P0' + str(operator) + '.csv'
     df = prep_data(path)
@@ -247,12 +285,17 @@ def exec_time_per_cycle(operator):
             continue
 
         times, cycle = zip(*values)
+        times = np.array(times)
+        if normalize and len(times) > 1:
+            mean = np.mean(times)
+            std = np.std(times)
+            times = (times - mean) / std
         plt.figure(figsize=(8, 6))
         plt.plot(cycle, times)
         plt.scatter(cycle, times, color='red')
         plt.title(f'Task {key}')
         plt.xlabel('Cycle')
-        plt.ylabel('Exec time')
+        plt.ylabel('Normalized exec time')
         plt.xticks(cycle)
 
         plt.savefig(f'{dir_path}/task_{key}.png')
@@ -260,24 +303,11 @@ def exec_time_per_cycle(operator):
 
 
 if __name__ == '__main__':
-    # standar_exec_times = {'1': 0.5,
-    #             '2': 0.667,
-    #             '3': 0.333,
-    #             '4': 1.0,
-    #             '5': 0.5,
-    #             '6': 0.5,
-    #             '7': 0.333,
-    #             '8': 1.0,
-    #             '9': 0.667,
-    #             '10': 0.5,
-    #             '12': 0.667,
-    #             '13': 0.5,
-    #             '14': 1.0}
     for i in [1, 2, 3, 4, 6, 7]:            # todo: some error generating csv for operator 5
-        histogram_exec_times_op(operator = i)
-        visualize_3d_time_stress(operator = i)
+        # histogram_exec_times_op(operator = i)
+        # visualize_3d_time_stress(operator = i)
         visualize_strees_over_time(operator = i)
-        exec_time_per_cycle(operator = i)
+        # exec_time_per_cycle(operator = i)
 
 
     # state = {tasks done and not done}, which one is human doing, since when
