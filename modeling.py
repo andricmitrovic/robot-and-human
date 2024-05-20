@@ -41,25 +41,31 @@ def task_prob_dist(plot=True):
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
 
-        for key, values in task_data.items():
-            if not values:
+        for key, times in task_data.items():
+            if not times:
                 continue
-            plt.hist(values, bins = bin_count, color = 'skyblue', edgecolor = 'black')
+            times = np.array(times)
+            # if len(times) > 1:
+            #     mean = np.mean(times)
+            #     std = np.std(times)
+            #     times = (times - mean) / std
+
+            plt.hist(times, bins = bin_count, color = 'skyblue', edgecolor = 'black')
             plt.xlabel('Exec time')
             plt.ylabel('Frequency')
             plt.title(f'Histogram of Task {key}')
 
-            x_values = np.linspace(min(values), max(values), 1000)
+            x_values = np.linspace(min(times), max(times), 1000)
 
             ### Kernel density estimation (non parametric)
-            kde = gaussian_kde(values)
+            kde = gaussian_kde(times)
             # Evaluate the KDE at a range of points
             kde_values = kde.evaluate(x_values)
             # Plot the estimated probability density function
             plt.plot(x_values, kde_values, label='Gaussian KDE')
 
             ### Gaussian MLE (parametric)
-            mu, std = norm.fit(values)
+            mu, std = norm.fit(times)
             plt.plot(x_values, norm.pdf(x_values, mu, std), label='Gaussian MLE')
 
             # Create output destination

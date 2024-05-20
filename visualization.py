@@ -6,9 +6,12 @@ from sklearn.preprocessing import PolynomialFeatures
 from utils import prep_data
 
 
-def histogram_exec_times_op(operator, normalize = True):
+def histogram_exec_times_op(operator, normalize = True, rescheduling = True):
     # Get data
-    path = './data/csv/RESCH/P0' + str(operator) + '.csv'
+    if rescheduling:
+        path = './data/csv/RESCH/P0' + str(operator) + '.csv'
+    else:
+        path = './data/csv/NO_RESCH/P0' + str(operator) + '.csv'
     df = prep_data(path)
 
     # Collect task exec times
@@ -32,7 +35,10 @@ def histogram_exec_times_op(operator, normalize = True):
             task_data[str(tasks[i])].append(times[i])
 
     # Create output destination
-    dir_path = f"./output/exec_time_frequency/operator_{operator}"
+    if rescheduling:
+        dir_path = f"./output/RESCH/exec_time_frequency/operator_{operator}"
+    else:
+        dir_path = f"./output/NO_RESCH/exec_time_frequency/operator_{operator}"
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
 
@@ -62,9 +68,12 @@ def histogram_exec_times_op(operator, normalize = True):
         plt.close()
 
 
-def visualize_3d_time_stress(operator, normalize = True):
+def visualize_3d_time_stress(operator, normalize = True, rescheduling = True):
     # Get data
-    path = './data/csv/RESCH/P0' + str(operator) + '.csv'
+    if rescheduling:
+        path = './data/csv/RESCH/P0' + str(operator) + '.csv'
+    else:
+        path = './data/csv/NO_RESCH/P0' + str(operator) + '.csv'
     df = prep_data(path)
 
     # Collect task exec times and stress
@@ -89,7 +98,10 @@ def visualize_3d_time_stress(operator, normalize = True):
             task_data[str(tasks[i])].append((times[i], stress[i]))
 
     # Create output destination
-    dir_path = f"./output/exec_time_stress_frequency/operator_{operator}"
+    if rescheduling:
+        dir_path = f"./output/RESCH/exec_time_stress_frequency/operator_{operator}"
+    else:
+        dir_path = f"./output/NO_RESCH/exec_time_stress_frequency/operator_{operator}"
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
 
@@ -143,9 +155,12 @@ def visualize_3d_time_stress(operator, normalize = True):
         plt.close()
 
 
-def visualize_strees_over_time(operator):
+def visualize_strees_over_time(operator, rescheduling = True):
     # Get data
-    path = './data/csv/RESCH/P0' + str(operator) + '.csv'
+    if rescheduling:
+        path = './data/csv/RESCH/P0' + str(operator) + '.csv'
+    else:
+        path = './data/csv/NO_RESCH/P0' + str(operator) + '.csv'
     df = prep_data(path)
     df = df[['timetoSave', 'mwtoSave']]
 
@@ -243,16 +258,22 @@ def visualize_strees_over_time(operator):
     plt.grid(True)
 
     # Create output destination
-    dir_path = f"./output/stress_over_time/"
+    if rescheduling:
+        dir_path = f"./output/RESCH/stress_over_time/"
+    else:
+        dir_path = f"./output/NO_RESCH/stress_over_time/"
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
     plt.savefig(f'{dir_path}/operator_{operator}.png')
     plt.close()
 
 
-def exec_time_per_cycle(operator, normalize = True):
+def exec_time_per_cycle(operator, normalize = True, rescheduling = True):
     # Get data
-    path = './data/csv/RESCH/P0' + str(operator) + '.csv'
+    if rescheduling:
+        path = './data/csv/RESCH/P0' + str(operator) + '.csv'
+    else:
+        path = './data/csv/NO_RESCH/P0' + str(operator) + '.csv'
     df = prep_data(path)
 
     # Collect task exec times
@@ -276,7 +297,10 @@ def exec_time_per_cycle(operator, normalize = True):
             task_data[str(tasks[i])].append((times[i], index))
 
     # Create output destination
-    dir_path = f"./output/exec_time_per_cycle/operator_{operator}"
+    if rescheduling:
+        dir_path = f"./output/RESCH/exec_time_per_cycle/operator_{operator}"
+    else:
+        dir_path = f"./output/NO_RESCH/exec_time_per_cycle/operator_{operator}"
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
 
@@ -303,12 +327,17 @@ def exec_time_per_cycle(operator, normalize = True):
 
 
 if __name__ == '__main__':
-    for i in [1, 2, 3, 4, 6, 7]:            # todo: some error generating csv for operator 5
-        # histogram_exec_times_op(operator = i)
-        # visualize_3d_time_stress(operator = i)
-        visualize_strees_over_time(operator = i)
-        # exec_time_per_cycle(operator = i)
+    # for i in [1, 2, 3, 4, 6, 7]:            # todo: some error generating csv for operator 5
+    #     histogram_exec_times_op(operator=i)
+    #     visualize_3d_time_stress(operator=i)
+    #     visualize_strees_over_time(operator=i)
+    #     exec_time_per_cycle(operator=i)
 
+    for i in [1, 2, 3]:
+        histogram_exec_times_op(operator=i, rescheduling=False)
+        visualize_3d_time_stress(operator=i, rescheduling=False)
+        visualize_strees_over_time(operator=i, rescheduling=False)
+        exec_time_per_cycle(operator=i, rescheduling=False)
 
     # state = {tasks done and not done}, which one is human doing, since when
     # actions = robot performs
