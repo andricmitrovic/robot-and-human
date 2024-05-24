@@ -1,5 +1,7 @@
 import numpy as np
 import os
+
+import pandas as pd
 from matplotlib import pyplot as plt
 from sklearn.linear_model import LinearRegression, RANSACRegressor
 from sklearn.preprocessing import PolynomialFeatures
@@ -326,6 +328,88 @@ def exec_time_per_cycle(operator, normalize = True, rescheduling = True):
         plt.close()
 
 
+def avg_stress(rescheduling=True):
+    # Get data
+    if rescheduling:
+        operators = [1, 2, 3, 4, 6, 7]
+        path = './data/csv/RESCH/P0'
+    else:
+        operators = [1, 2, 3]
+        path = './data/csv/NO_RESCH/P0'
+
+    stress_history = []
+    times_history = []
+    for operator in operators:
+        df = prep_data(path + str(operator) + '.csv')
+        df = df[['timetoSave', 'mwtoSave']]
+        curr_time = 0
+        for index, row in df.iterrows():
+            times = row['timetoSave']
+            stress = row['mwtoSave']
+            for i in range(len(times)):
+                curr_time += times[i]
+                times_history.append(curr_time)
+                stress_history.append(stress[i])
+
+    # Plotting scatter
+    plt.figure(figsize=(20, 5))
+    plt.scatter(times_history, stress_history, marker='o', color='blue', alpha=0.8)
+    plt.title('Stress over time')
+    plt.xlabel('End time of the task')
+    plt.ylabel('Stress')
+
+    #############
+    # RANSAC Regression
+    ransac = RANSACRegressor()
+    X = np.array(times_history).reshape(-1, 1)
+    y = np.array(stress_history)
+    ransac.fit(X, y)
+
+    # Predict y values using the RANSAC model
+    y_pred_ransac = ransac.predict(X)
+
+    # Sort the values for plotting
+    sorted_zip = sorted(zip(times_history, y_pred_ransac))
+    times_history, y_pred_ransac = zip(*sorted_zip)
+
+    # Plot the RANSAC regression line
+    plt.plot(times_history, y_pred_ransac, color='purple', label='RANSAC Regression', linewidth=2)
+    ############
+
+    #############
+    # Perform Polynomial Regression
+    degree = 3  # Degree of polynomial
+    polynomial_features = PolynomialFeatures(degree=degree)
+    X_poly = polynomial_features.fit_transform(np.array(times_history).reshape(-1, 1))
+
+    # Fit polynomial regression model
+    model = LinearRegression()
+    model.fit(X_poly, stress_history)
+
+    # Predict y values using the model
+    y_pred = model.predict(X_poly)
+
+    # Sort the values for plotting
+    sorted_zip = sorted(zip(times_history, y_pred))
+    times_history, y_pred = zip(*sorted_zip)
+
+    # Plot the regression line
+    plt.plot(times_history, y_pred, color='red', label=f'Polynomial Regression (Degree {degree})')
+    ############
+
+    plt.legend()
+    plt.grid(True)
+
+    # Create output destination
+    if rescheduling:
+        dir_path = f"./output/RESCH/avg_stress/"
+    else:
+        dir_path = f"./output/NO_RESCH/avg_stress/"
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
+    plt.savefig(f'{dir_path}/stress.png')
+    plt.close()
+
 if __name__ == '__main__':
     # for i in [1, 2, 3, 4, 6, 7]:            # todo: some error generating csv for operator 5
     #     histogram_exec_times_op(operator=i)
@@ -333,11 +417,13 @@ if __name__ == '__main__':
     #     visualize_strees_over_time(operator=i)
     #     exec_time_per_cycle(operator=i)
 
-    for i in [1, 2, 3]:
-        histogram_exec_times_op(operator=i, rescheduling=False)
-        visualize_3d_time_stress(operator=i, rescheduling=False)
-        visualize_strees_over_time(operator=i, rescheduling=False)
-        exec_time_per_cycle(operator=i, rescheduling=False)
+    # for i in [1, 2, 3]:
+    #     histogram_exec_times_op(operator=i, rescheduling=False)
+    #     visualize_3d_time_stress(operator=i, rescheduling=False)
+    #     visualize_strees_over_time(operator=i, rescheduling=False)
+    #     exec_time_per_cycle(operator=i, rescheduling=False)
+
+    avg_stress()
 
     # state = {tasks done and not done}, which one is human doing, since when
     # actions = robot performs

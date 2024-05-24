@@ -7,24 +7,41 @@ from scipy.stats import gaussian_kde
 from scipy.stats import norm
 
 
-def task_prob_dist(plot=True):
-    task_data = {'1': [],
-                 '2': [],
-                 '3': [],
-                 '4': [],
-                 '5': [],
-                 '6': [],
-                 '7': [],
-                 '8': [],
-                 '9': [],
-                 '10': [],
-                 '12': [],
-                 '13': [],
-                 '14': []}
+def task_prob_dist(plot=True, rescheduling = True):
 
-    for operator in [1, 2, 3, 4, 6, 7]:
+    if rescheduling:
+        task_data = {'1': [],
+                     '2': [],
+                     '3': [],
+                     '4': [],
+                     '5': [],
+                     '6': [],
+                     '7': [],
+                     '8': [],
+                     '9': [],
+                     '10': [],
+                     '12': [],
+                     '13': [],
+                     '14': []}
+        operators = [1, 2, 3, 4, 6, 7]
+    else:
+        task_data = {'1': [],
+                     '2': [],
+                     '3': [],
+                     '4': [],
+                     '5': [],
+                     '6': [],
+                     '7': [],
+                     '8': [],
+                     '9': []}
+        operators = [1, 2, 3]
+
+    for operator in operators:
         # Get data
-        path = './data/csv/RESCH/P0' + str(operator) + '.csv'
+        if rescheduling:
+            path = './data/csv/RESCH/P0' + str(operator) + '.csv'
+        else:
+            path = './data/csv/NO_RESCH/P0' + str(operator) + '.csv'
         df = prep_data(path)
 
         for index, row in df.iterrows():
@@ -37,7 +54,10 @@ def task_prob_dist(plot=True):
     if plot:
         bin_count = 30
         # Create output destination
-        dir_path = f"./output/exec_time_frequency/operator_{operator}"
+        if rescheduling:
+            dir_path = f"./output/RESCH/exec_time_frequency/operator_{operator}"
+        else:
+            dir_path = f"./output/NO_RESCH/exec_time_frequency/operator_{operator}"
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
 
@@ -69,7 +89,10 @@ def task_prob_dist(plot=True):
             plt.plot(x_values, norm.pdf(x_values, mu, std), label='Gaussian MLE')
 
             # Create output destination
-            dir_path = f"./output/probability_estimation/"
+            if rescheduling:
+                dir_path = f"./output/RESCH/probability_estimation/"
+            else:
+                dir_path = f"./output/NO_RESCH/probability_estimation/"
             if not os.path.exists(dir_path):
                 os.makedirs(dir_path)
             plt.legend()
@@ -82,3 +105,4 @@ def task_prob_dist(plot=True):
 
 if __name__ == '__main__':
     task_prob_dist()
+    #task_prob_dist(rescheduling = False)
