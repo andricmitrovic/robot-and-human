@@ -7,7 +7,7 @@ from scipy.stats import gaussian_kde
 from scipy.stats import norm
 
 
-def task_prob_dist(plot=True, rescheduling = True):
+def task_prob_dist(rescheduling = True):
 
     if rescheduling:
         task_data = {'1': [],
@@ -24,6 +24,7 @@ def task_prob_dist(plot=True, rescheduling = True):
                      '13': [],
                      '14': []}
         operators = [1, 2, 3, 4, 6, 7]
+        dir_path = f"./output/RESCH/probability_estimation/"
     else:
         task_data = {'1': [],
                      '2': [],
@@ -33,8 +34,13 @@ def task_prob_dist(plot=True, rescheduling = True):
                      '6': [],
                      '7': [],
                      '8': [],
-                     '9': []}
+                     '9': [],
+                     '10': []}
         operators = [1, 2, 3]
+        dir_path = f"./output/NO_RESCH/probability_estimation/"
+    # Create output destination
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
 
     for operator in operators:
         # Get data
@@ -51,24 +57,12 @@ def task_prob_dist(plot=True, rescheduling = True):
             for i in range(len(tasks)):
                 task_data[str(tasks[i])].append(times[i])
 
-    if plot:
+    with open(f"{dir_path}/gaussian_params.txt", "w") as file:
         bin_count = 30
-        # Create output destination
-        if rescheduling:
-            dir_path = f"./output/RESCH/exec_time_frequency/operator_{operator}"
-        else:
-            dir_path = f"./output/NO_RESCH/exec_time_frequency/operator_{operator}"
-        if not os.path.exists(dir_path):
-            os.makedirs(dir_path)
-
         for key, times in task_data.items():
             if not times:
                 continue
             times = np.array(times)
-            # if len(times) > 1:
-            #     mean = np.mean(times)
-            #     std = np.std(times)
-            #     times = (times - mean) / std
 
             plt.hist(times, bins = bin_count, color = 'skyblue', edgecolor = 'black')
             plt.xlabel('Exec time')
@@ -86,15 +80,12 @@ def task_prob_dist(plot=True, rescheduling = True):
 
             ### Gaussian MLE (parametric)
             mu, std = norm.fit(times)
-            plt.plot(x_values, norm.pdf(x_values, mu, std), label='Gaussian MLE')
 
-            # Create output destination
-            if rescheduling:
-                dir_path = f"./output/RESCH/probability_estimation/"
-            else:
-                dir_path = f"./output/NO_RESCH/probability_estimation/"
-            if not os.path.exists(dir_path):
-                os.makedirs(dir_path)
+            # Save params
+            line = f'{key} {mu} {std}\n'
+            file.write(line)
+
+            plt.plot(x_values, norm.pdf(x_values, mu, std), label='Gaussian MLE')
             plt.legend()
             # plt.show()
             plt.savefig(f'{dir_path}/task_{key}.png')
@@ -104,5 +95,5 @@ def task_prob_dist(plot=True, rescheduling = True):
 
 
 if __name__ == '__main__':
-    task_prob_dist()
-    #task_prob_dist(rescheduling = False)
+    # task_prob_dist()
+    task_prob_dist(rescheduling = False)

@@ -6,6 +6,7 @@ from matplotlib import pyplot as plt
 from sklearn.linear_model import LinearRegression, RANSACRegressor
 from sklearn.preprocessing import PolynomialFeatures
 from utils import prep_data
+import joblib
 
 
 def histogram_exec_times_op(operator, normalize = True, rescheduling = True):
@@ -407,6 +408,9 @@ def avg_stress(rescheduling=True):
         dir_path = f"./output/NO_RESCH/avg_stress/"
     if not os.path.exists(dir_path):
         os.makedirs(dir_path)
+    # Save the RANSAC model
+    joblib.dump(ransac, os.path.join(dir_path, 'ransac_model.pkl'))
+    # Plot
     plt.savefig(f'{dir_path}/stress.png')
     plt.close()
 
