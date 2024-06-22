@@ -22,7 +22,7 @@ robotExecTime = {7: 0.372,
 ###############
 ### STATE ###
 
-# (current time, (human info -----> currTask, currTaskExecTime, startTime, stress), (not done tasks ---> 1...20))
+# (current time, (human info -----> currTask, currTaskExecTime, startTime), (not done tasks ---> 1...20))
 
 ###############
 ### ACTION ###
@@ -34,13 +34,18 @@ class CollaborationEnv(gym.Env):
     def __init__(self):
         super(CollaborationEnv, self).__init__()
 
-        self.action_space = spaces.Tuple((spaces.MultiDiscrete(13), spaces.MultiDiscrete(13))) # or Sequence???
+        self.action_space = spaces.Tuple((
+            spaces.Sequence(spaces.Box(low=7, high=20, shape=(), dtype=np.int32)),
+            # First variable-length integer array
+            spaces.Sequence(spaces.Box(low=1, high=14, shape=(), dtype=np.int32))
+        # Second variable-length integer array
+        ))
 
         self.observation_space = spaces.Tuple((
             spaces.Box(low=0, high=np.finfo(np.float32).max, dtype=np.float32),
             spaces.Tuple((
                         spaces.Box(low=0, high=14, dtype=np.int32),
-                        spaces.Box(low=0, high=np.finfo(np.float32).max, shape= (3,), dtype=np.float32))),
+                        spaces.Box(low=0, high=np.finfo(np.float32).max, shape= (2,), dtype=np.float32))),
             spaces.MultiBinary(20)))
 
         self.state = self.initState()
@@ -49,7 +54,7 @@ class CollaborationEnv(gym.Env):
     def initState(self):
         currTime = np.array([0], dtype=np.float32)
         humanInfo = (np.array([0], dtype=np.int32),
-                     np.zeros(3, dtype=np.float32),)
+                     np.zeros(2, dtype=np.float32),)
         doneTasks = np.ones(20, dtype=np.int8)
         return currTime, humanInfo, doneTasks
 
@@ -63,28 +68,36 @@ class CollaborationEnv(gym.Env):
         # todo make sure action is a permutation of remaining tasks and that robot and human can each reach them
         assert self.action_space.contains(action), "%r (%s) invalid" % (action, type(action))
 
+        robotSchedule = list(action[0])
+        humanSchedule = list(action[1])
+
         # Step robot
-        task = action[0].pop()
+        task = robotSchedule.pop()
         currTime = self.state[0]
         currTime += robotExecTime[task]
 
         # Step human
-        doneTasks, currHumanTask, stress = self.stepHuman(currTime, action[1])
-
+        doneTasks, currTask, taskInfo, stress = self.stepHuman(currTime, humanSchedule)
+        stress = stress[0]
         # Update unfinished tasks
         doneTasks.append(task)
-        doneTasks.append(currHumanTask) # maybe possible to reassign?
+        doneTasks.append(currTask) # maybe possible to reassign?
         remainingTasks = self.state[2]
         for idx in doneTasks:
-            remainingTasks[idx] = 0
+            remainingTasks[idx-1] = 0
 
         # Check if all task are done
-        done = remainingTasks.count(1) == 0
+        done = np.sum(remainingTasks) == 0
+
+        # Modify new state
+        # new_state = (currTime, (np.array([currTask], dtype=np.int32), taskInfo), remainingTasks)
+        # print(new_state)
+        # print(self.state)
 
         return self.state, stress, done, {}
 
     def stepHuman(self, currTime, schedule):
-        currTask, [currTaskExecTime, startTime, stress] = self.state[1]
+        currTask, [currTaskExecTime, startTime] = self.state[1]
         # Just started
         if currTask == 0:
             currTask = schedule.pop()
@@ -98,7 +111,7 @@ class CollaborationEnv(gym.Env):
             currTask = schedule.pop()
             currTaskExecTime = self.operator.sample_exec_time(currTask)
 
-        return doneTasks, currTask, self.operator.sample_stress(currTime)
+        return doneTasks, currTask, np.array([currTaskExecTime, startTime], dtype=np.float32), self.operator.sample_stress(currTime)
 
     def render(self, mode='human', close=False):
         # Implement visualization
