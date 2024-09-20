@@ -27,4 +27,4 @@ class OperatorGaussian:
         return np.random.normal(mean, std, 1)
 
     def sample_stress(self, currTime):
-        return self.stressModel.predict(currTime.reshape(1, -1))
+        return self.stressModel.predict([[currTime]])

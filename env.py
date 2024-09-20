@@ -22,7 +22,7 @@ robotExecTime = {7: 0.372,
 ###############
 ### STATE ###
 
-# (current time, (human info -----> currTask, currTaskExecTime, startTime), (not done tasks ---> 1...20))
+# (current time, currOperatorTask, currTaskRemaining, (remainingTasks ---> 1...20))
 
 ###############
 ### ACTION ###
@@ -42,21 +42,20 @@ class CollaborationEnv(gym.Env):
         ))
 
         self.observation_space = spaces.Tuple((
-            spaces.Box(low=0, high=np.finfo(np.float32).max, dtype=np.float32),
-            spaces.Tuple((
-                        spaces.Box(low=0, high=14, dtype=np.int32),
-                        spaces.Box(low=0, high=np.finfo(np.float32).max, shape= (2,), dtype=np.float32))),
+            spaces.Box(low=0, high=np.finfo(np.float32).max, shape=(), dtype=np.float32),
+            spaces.Box(low=0, high=14, shape=(), dtype=np.int32),
+            spaces.Box(low=0, high=np.finfo(np.float32).max, shape=(), dtype=np.float32),
             spaces.MultiBinary(20)))
 
         self.state = self.initState()
         self.operator = OperatorGaussian()
 
     def initState(self):
-        currTime = np.array([0], dtype=np.float32)
-        humanInfo = (np.array([0], dtype=np.int32),
-                     np.zeros(2, dtype=np.float32),)
-        doneTasks = np.ones(20, dtype=np.int8)
-        return currTime, humanInfo, doneTasks
+        currTime = 0
+        currOperatorTask = 0
+        currTaskRemaining = 0
+        remainingTasks = np.ones(20, dtype=np.int8)
+        return currTime, currOperatorTask, currTaskRemaining, remainingTasks
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -74,45 +73,56 @@ class CollaborationEnv(gym.Env):
 
         # Step robot
         task = robotSchedule.pop()
-        currTime = self.state[0]
-        currTime += robotExecTime[task]
+        timePassed = robotExecTime[task]
 
         # Step human
-        doneTasks, currTask, taskInfo, stress = self.stepHuman(currTime, humanSchedule)
+        doneTasks, currOperatorTask, currTaskRemaining, stress = self.stepHuman(timePassed, humanSchedule)
         stress = stress[0]
         # Update unfinished tasks
         doneTasks.append(task)
-        doneTasks.append(currTask) # maybe possible to reassign?
-        remainingTasks = self.state[2]
+        doneTasks.append(currOperatorTask) # it will be done in the future dont assign it, but maybe possible to reassign?
+        remainingTasks = self.state[3]
         for idx in doneTasks:
             remainingTasks[idx-1] = 0
 
         # Check if all task are done
         terminated = np.sum(remainingTasks) == 0
         truncated = False
+
         # Modify new state
-        # new_state = (currTime, (np.array([currTask], dtype=np.int32), taskInfo), remainingTasks)
+        currTime = self.state[0] + timePassed
+        new_state = (currTime, currOperatorTask, currTaskRemaining, remainingTasks)
+        self.state = new_state
         # print(new_state)
         # print(self.state)
 
         return self.state, stress, terminated, truncated, {}
 
-    def stepHuman(self, currTime, schedule):
-        currTask, [currTaskExecTime, startTime] = self.state[1]
+    def stepHuman(self, timePassed, schedule):
+        currTime, currOperatorTask, currTaskRemaining, _ = self.state
+        # currTask, [currTaskExecTime, startTime] = self.state[1]
         # Just started
-        if currTask == 0:
-            currTask = schedule.pop()
-            currTaskExecTime = self.operator.sample_exec_time(currTask)
+        if currOperatorTask == 0:
+            currOperatorTask = schedule.pop()
+            currTaskRemaining = self.operator.sample_exec_time(currOperatorTask)[0]
         # Finish started tasks
         doneTasks = []
-        while startTime + currTaskExecTime < currTime:
-            doneTasks.append(currTask)
-            startTime += currTaskExecTime
+        remaining_time = timePassed
+
+        while currTaskRemaining < remaining_time:
+            # Finish the task
+            remaining_time -= currTaskRemaining
+            doneTasks.append(currOperatorTask)
             # Start a new task
             currTask = schedule.pop()
-            currTaskExecTime = self.operator.sample_exec_time(currTask)
+            currTaskRemaining = self.operator.sample_exec_time(currTask)[0]
 
-        return doneTasks, currTask, np.array([currTaskExecTime, startTime], dtype=np.float32), self.operator.sample_stress(currTime)
+        # Finish a part of the task with remaining time
+        currTaskRemaining -= remaining_time
+
+        # Sample stress at the end of the step time
+        stress = self.operator.sample_stress(currTime+timePassed)
+        return doneTasks, currOperatorTask, currTaskRemaining, stress
 
     def render(self, mode='human', close=False):
         # Implement visualization
