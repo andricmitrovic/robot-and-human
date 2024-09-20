@@ -66,7 +66,8 @@ class CollaborationEnv(gym.Env):
     def step(self, action):
         # todo check illegal actions for both
         # todo make sure action is a permutation of remaining tasks and that robot and human can each reach them
-        assert self.action_space.contains(action), "%r (%s) invalid" % (action, type(action))
+        # TODO: remove this an implement your own actions check
+        # assert self.action_space.contains(action), "%r (%s) invalid" % (action, type(action))
 
         robotSchedule = list(action[0])
         humanSchedule = list(action[1])
@@ -87,14 +88,14 @@ class CollaborationEnv(gym.Env):
             remainingTasks[idx-1] = 0
 
         # Check if all task are done
-        done = np.sum(remainingTasks) == 0
-
+        terminated = np.sum(remainingTasks) == 0
+        truncated = False
         # Modify new state
         # new_state = (currTime, (np.array([currTask], dtype=np.int32), taskInfo), remainingTasks)
         # print(new_state)
         # print(self.state)
 
-        return self.state, stress, done, {}
+        return self.state, stress, terminated, truncated, {}
 
     def stepHuman(self, currTime, schedule):
         currTask, [currTaskExecTime, startTime] = self.state[1]

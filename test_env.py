@@ -7,8 +7,11 @@ env = gym.make('CollaborationEnv-v0')
 observation, _ = env.reset()
 env.render()
 
-action = ((18, 19, 20), (5, 4, 3, 2, 1))#env.action_space.sample()
-observation, reward, done, info = env.step(action)
+action = ((18, 19, 20), (5, 4, 3, 2, 1))
+# todo: fix sampling, avoid same tasks and illegal taks for op/robot
+# action = env.action_space.sample()
+# print(action)
+observation, reward, terminated, truncated, info = env.step(action)
 print(f"Action: {action}\nNew State: {observation}\nReward(Stress): {-reward}")
 
 # # Use the environment
