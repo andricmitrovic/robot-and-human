@@ -3,7 +3,7 @@ import joblib
 
 
 def get_exec_time_params():
-    fpath = 'output/RESCH/probability_estimation/gaussian_params.txt'
+    fpath = 'output/RESCH/probability_estimation/params_ln.txt'
     data_dict = {}
     with open(fpath, "r") as file:
         for line in file:
@@ -23,8 +23,8 @@ class OperatorGaussian:
         self.stressModel = joblib.load('./output/RESCH/avg_stress/ransac_model.pkl')
 
     def sample_exec_time(self, currTask):
-        mean, std = self.tasks_params[currTask]
-        return np.random.normal(mean, std, 1)
+        mu_ln, sigma_ln = self.tasks_params[currTask]
+        return np.random.lognormal(mean=mu_ln, sigma=sigma_ln, size=1)
 
     def sample_stress(self, currTime):
         return self.stressModel.predict([[currTime]])
