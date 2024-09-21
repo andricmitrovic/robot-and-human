@@ -9,7 +9,6 @@ observation, _ = env.reset()
 env.render()
 #
 action = ([5, 4, 3, 2, 1], [18, 19, 20])
-# # todo: fix sampling, avoid same tasks and illegal taks for op/robot
 # # action = env.action_space.sample()
 # # print(action)
 observation, reward, terminated, truncated, info = env.step(action)

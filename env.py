@@ -52,9 +52,9 @@ class CollaborationEnv(gym.Env):
         self.operator = OperatorGaussian()
 
     def initState(self):
-        currTime = 0
-        currOperatorTask = 0
-        currTaskRemaining = 0
+        currTime = np.array(0, dtype=np.float32)
+        currOperatorTask = np.array(0, dtype=np.int32)
+        currTaskRemaining = np.array(0, dtype=np.float32)
         remainingTasks = np.ones(20, dtype=np.int8)
         return currTime, currOperatorTask, currTaskRemaining, remainingTasks
 
@@ -87,7 +87,12 @@ class CollaborationEnv(gym.Env):
 
         # Modify new state
         currTime = self.state[0] + timePassed
-        self.state = (currTime, currOperatorTask, currTaskRemaining, remainingTasks)
+        self.state = (
+            np.array(currTime, dtype=np.float32),
+            np.array(currOperatorTask, dtype=np.int32),
+            np.array(currTaskRemaining, dtype=np.float32),
+            np.array(remainingTasks, dtype=np.int8)
+        )
 
         return self.state, stress, terminated, truncated, {}
 
@@ -136,7 +141,6 @@ class VariableLengthActionSpace(gym.Space):
         self.human_tasks = np.array([i for i in range(1, 11) if i not in [7, 8, 9]])
         self.robot_tasks = np.array([i for i in range(11, 21) if i not in [12, 13, 14]])
         self.common_tasks = np.array([i for i in range(7, 15) if i not in [10, 11]])
-        print(self.human_tasks, self.robot_tasks, self.common_tasks)
         # Define the action space type
         super().__init__(shape=(2,), dtype=np.int32)  # 2 sequences of variable length
 
