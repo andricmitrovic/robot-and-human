@@ -34,12 +34,13 @@ class CollaborationEnv(gym.Env):
     def __init__(self):
         super(CollaborationEnv, self).__init__()
 
-        self.action_space = spaces.Tuple((
-            spaces.Sequence(spaces.Box(low=7, high=20, shape=(), dtype=np.int32)),
-            # First variable-length integer array
-            spaces.Sequence(spaces.Box(low=1, high=14, shape=(), dtype=np.int32))
-        # Second variable-length integer array
-        ))
+        self.action_space = VariableLengthActionSpace(low=1, high=20, max_len=20)
+        # spaces.Tuple((
+        #     spaces.Sequence(spaces.Box(low=7, high=20, shape=(), dtype=np.int32)),
+        #     # First variable-length integer array
+        #     spaces.Sequence(spaces.Box(low=1, high=14, shape=(), dtype=np.int32))
+        # # Second variable-length integer array
+        # ))
 
         self.observation_space = spaces.Tuple((
             spaces.Box(low=0, high=np.finfo(np.float32).max, shape=(), dtype=np.float32),
@@ -63,13 +64,8 @@ class CollaborationEnv(gym.Env):
         return self.state, {}
 
     def step(self, action):
-        # todo check illegal actions for both
-        # todo make sure action is a permutation of remaining tasks and that robot and human can each reach them
-        # TODO: remove this an implement your own actions check
-        # assert self.action_space.contains(action), "%r (%s) invalid" % (action, type(action))
-
-        robotSchedule = list(action[0])
-        humanSchedule = list(action[1])
+        humanSchedule = list(action[0])
+        robotSchedule = list(action[1])
 
         # Step robot
         task = robotSchedule.pop()
@@ -91,29 +87,24 @@ class CollaborationEnv(gym.Env):
 
         # Modify new state
         currTime = self.state[0] + timePassed
-        new_state = (currTime, currOperatorTask, currTaskRemaining, remainingTasks)
-        self.state = new_state
-        # print(new_state)
-        # print(self.state)
+        self.state = (currTime, currOperatorTask, currTaskRemaining, remainingTasks)
 
         return self.state, stress, terminated, truncated, {}
 
     def stepHuman(self, timePassed, schedule):
         currTime, currOperatorTask, currTaskRemaining, _ = self.state
-        # currTask, [currTaskExecTime, startTime] = self.state[1]
-        # Just started
+        # Start the first task for human if none is assigned
         if currOperatorTask == 0:
             currOperatorTask = schedule.pop()
             currTaskRemaining = self.operator.sample_exec_time(currOperatorTask)[0]
-        # Finish started tasks
+
         doneTasks = []
         remaining_time = timePassed
-
+        # Process tasks for human operator
         while currTaskRemaining < remaining_time:
-            # Finish the task
             remaining_time -= currTaskRemaining
             doneTasks.append(currOperatorTask)
-            # Start a new task
+
             currTask = schedule.pop()
             currTaskRemaining = self.operator.sample_exec_time(currTask)[0]
 
@@ -130,3 +121,110 @@ class CollaborationEnv(gym.Env):
 
     def close(self):
         pass
+
+
+class VariableLengthActionSpace(gym.Space):
+    def __init__(self, low, high, max_len):
+        # Initialize the bounds for each sequence
+        self.low = low
+        self.high = high
+
+        # Max lengths for the two sequences
+        self.max_len = max_len
+
+        # Legal tasks in each schedule
+        self.human_tasks = np.array([i for i in range(1, 11) if i not in [7, 8, 9]])
+        self.robot_tasks = np.array([i for i in range(11, 21) if i not in [12, 13, 14]])
+        self.common_tasks = np.array([i for i in range(7, 15) if i not in [10, 11]])
+        print(self.human_tasks, self.robot_tasks, self.common_tasks)
+        # Define the action space type
+        super().__init__(shape=(2,), dtype=np.int32)  # 2 sequences of variable length
+
+    def sample(self, remaining_tasks):
+        """
+            Sample actions for human and robot based on the remaining tasks,
+            ensuring all available human-specific and robot-specific tasks are included,
+            and then shuffle the tasks.
+
+            Parameters:
+            remaining_tasks (np.ndarray): A mask where 1 means the task is not done, 0 means it is done.
+
+            Returns:
+            tuple: Two sequences representing tasks assigned to the human and robot.
+            """
+        available_tasks = np.where(remaining_tasks == 1)[0] + 1
+        if len(available_tasks) == 0:
+            raise ValueError("No available tasks to sample from.")
+        # Split available tasks into human, robot, and common tasks
+        available_human_tasks = [task for task in available_tasks if task in self.human_tasks]
+        available_robot_tasks = [task for task in available_tasks if task in self.robot_tasks]
+        available_common_tasks = [task for task in available_tasks if task in self.common_tasks]
+
+        # Randomly assign common tasks to either human or robot
+        np.random.shuffle(available_common_tasks)
+        len_common_for_human = np.random.randint(0, len(available_common_tasks) + 1)
+
+        # Split the common tasks randomly between human and robot
+        common_for_human = available_common_tasks[:len_common_for_human]
+        common_for_robot = available_common_tasks[len_common_for_human:]
+
+        # All available human-specific tasks and robot-specific tasks must be included
+        human_final_tasks = available_human_tasks + common_for_human
+        robot_final_tasks = available_robot_tasks + common_for_robot
+
+        # Shuffle the final tasks for both human and robot
+        np.random.shuffle(human_final_tasks)
+        np.random.shuffle(robot_final_tasks)
+
+        return (human_final_tasks, robot_final_tasks)
+
+    def contains(self, x):
+        """
+        Check if the action x is valid based on the defined task constraints.
+
+        Parameters:
+        x (tuple): A tuple containing two lists of tasks: (human_tasks, robot_tasks)
+
+        Returns:
+        bool: True if the action is valid, False otherwise.
+        """
+        # Check if the given action is a tuple of two sequences
+        if not isinstance(x, tuple) or len(x) != 2:
+            return False
+
+        seq_1, seq_2 = x  # seq_1: human tasks, seq_2: robot tasks
+
+        # Ensure both sequences are lists
+        if not isinstance(seq_1, list) or not isinstance(seq_2, list):
+            return False
+
+        # Check if all human tasks are either in human_tasks or common_tasks
+        if not all(task in self.human_tasks or task in self.common_tasks for task in seq_1):
+            return False
+
+        # Check if all robot tasks are either in robot_tasks or common_tasks
+        if not all(task in self.robot_tasks or task in self.common_tasks for task in seq_2):
+            return False
+
+        # Ensure there is no overlap between human and robot tasks
+        if set(seq_1) & set(seq_2):  # Check for any common tasks appearing in both lists
+            return False
+
+        return True
+
+    def __repr__(self):
+        return f"VariableLengthActionSpace(({self.low}, {self.high}))"
+
+
+if __name__ == '__main__':
+    # Example usage:
+    action_space = VariableLengthActionSpace(low=1, high=20, max_len=20)
+
+    # Sampling a random action
+    remaining_tasks = np.array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1])
+    random_action = action_space.sample(remaining_tasks)
+    print("Random action:", random_action)
+
+    # Check if a specific action is valid
+    valid = action_space.contains(([5, 4, 3, 2, 1], [18, 19, 20]))
+    print("Is action valid?", valid)

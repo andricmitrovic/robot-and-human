@@ -8,7 +8,7 @@ env = gym.make('CollaborationEnv-v0')
 observation, _ = env.reset()
 env.render()
 #
-action = ((18, 19, 20), (5, 4, 3, 2, 1))
+action = ([5, 4, 3, 2, 1], [18, 19, 20])
 # # todo: fix sampling, avoid same tasks and illegal taks for op/robot
 # # action = env.action_space.sample()
 # # print(action)
