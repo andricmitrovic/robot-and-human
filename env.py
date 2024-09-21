@@ -1,6 +1,8 @@
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
+
+from operators.operator_fake import FakeOperator
 from operators.operator_sim import AverageOperator
 
 robotExecTime = {7: 0.372,
@@ -42,7 +44,8 @@ class CollaborationEnv(gym.Env):
             spaces.MultiBinary(20)))
 
         self.state = self.initState()
-        self.operator = AverageOperator()
+        # self.operator = AverageOperator()
+        self.operator = FakeOperator()
 
     def initState(self):
         currTime = np.array(0, dtype=np.float32)
@@ -70,7 +73,7 @@ class CollaborationEnv(gym.Env):
 
         # Step human
         doneTasks, currOperatorTask, currTaskRemaining, stress = self.stepHuman(timePassed, humanSchedule)
-        stress = stress[0]
+        # stress = stress[0]
         # Update unfinished tasks
         if task is not None:
             doneTasks.append(task)

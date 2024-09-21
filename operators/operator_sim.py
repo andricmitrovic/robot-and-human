@@ -29,4 +29,4 @@ class AverageOperator:
         return np.random.lognormal(mean=mu_ln, sigma=sigma_ln, size=1)
 
     def sample_stress(self, currTime):
-        return self.stressModel.predict([[currTime]])
+        return self.stressModel.predict([[currTime]])[0]
