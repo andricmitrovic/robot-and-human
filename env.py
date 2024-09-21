@@ -1,8 +1,7 @@
 import gymnasium as gym
 from gymnasium import spaces
-from gymnasium.spaces import Sequence, Box, MultiDiscrete
 import numpy as np
-from operator_sim import OperatorGaussian
+from operators.operator_sim import AverageOperator
 
 robotExecTime = {7: 0.372,
                  8: 1.1,
@@ -43,7 +42,7 @@ class CollaborationEnv(gym.Env):
             spaces.MultiBinary(20)))
 
         self.state = self.initState()
-        self.operator = OperatorGaussian()
+        self.operator = AverageOperator()
 
     def initState(self):
         currTime = np.array(0, dtype=np.float32)

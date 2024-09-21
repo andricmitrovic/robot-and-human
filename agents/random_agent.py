@@ -36,12 +36,10 @@ def random_agent(env, verbose = 0):
     print(f"Mean exec time: {mean_exec_time}")
     print(f"Standard Deviation exec time: {std_exec_time}")
 
-    dir_path = "./output/random_agent/"
+    dir_path = "../output/random_agent/"
     os.makedirs(dir_path, exist_ok=True)
     plt.hist(times, bins=50, color='orange', edgecolor='black')
     plt.savefig(f'{dir_path}/exec_time_hist.png')
-    plt.show()
-
 
 if __name__ == '__main__':
     env = gym.make('CollaborationEnv-v0')

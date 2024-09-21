@@ -3,7 +3,7 @@ import joblib
 
 
 def get_exec_time_params():
-    fpath = 'output/RESCH/probability_estimation/params_ln.txt'
+    fpath = '../output/RESCH/probability_estimation/params_ln.txt'
     data_dict = {}
     with open(fpath, "r") as file:
         for line in file:
@@ -15,12 +15,12 @@ def get_exec_time_params():
     return data_dict
 
 
-class OperatorGaussian:
+class AverageOperator:
     def __init__(self):
         # Get params for Gaussian operator
         self.tasks_params = get_exec_time_params()
         # Stress predictor
-        self.stressModel = joblib.load('./output/RESCH/avg_stress/ransac_model.pkl')
+        self.stressModel = joblib.load('../output/RESCH/avg_stress/ransac_model.pkl')
 
     def sample_exec_time(self, currTask):
         if currTask == 12: #todo input some smart value for task 12
