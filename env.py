@@ -35,12 +35,6 @@ class CollaborationEnv(gym.Env):
         super(CollaborationEnv, self).__init__()
 
         self.action_space = VariableLengthActionSpace(low=1, high=20, max_len=20)
-        # spaces.Tuple((
-        #     spaces.Sequence(spaces.Box(low=7, high=20, shape=(), dtype=np.int32)),
-        #     # First variable-length integer array
-        #     spaces.Sequence(spaces.Box(low=1, high=14, shape=(), dtype=np.int32))
-        # # Second variable-length integer array
-        # ))
 
         self.observation_space = spaces.Tuple((
             spaces.Box(low=0, high=np.finfo(np.float32).max, shape=(), dtype=np.float32),
@@ -68,14 +62,19 @@ class CollaborationEnv(gym.Env):
         robotSchedule = list(action[1])
 
         # Step robot
-        task = robotSchedule.pop()
-        timePassed = robotExecTime[task]
+        if len(robotSchedule) > 0:
+            task = robotSchedule.pop()
+            timePassed = robotExecTime[task]
+        else:
+            task = None
+            timePassed = 0.4
 
         # Step human
         doneTasks, currOperatorTask, currTaskRemaining, stress = self.stepHuman(timePassed, humanSchedule)
         stress = stress[0]
         # Update unfinished tasks
-        doneTasks.append(task)
+        if task is not None:
+            doneTasks.append(task)
         doneTasks.append(currOperatorTask) # it will be done in the future dont assign it, but maybe possible to reassign?
         remainingTasks = self.state[3]
         for idx in doneTasks:
@@ -98,6 +97,9 @@ class CollaborationEnv(gym.Env):
 
     def stepHuman(self, timePassed, schedule):
         currTime, currOperatorTask, currTaskRemaining, _ = self.state
+        # Check if no scheduled tasks
+        if len(schedule) == 0:
+            return [], 0, 0, -self.operator.sample_stress(currTime+timePassed)
         # Start the first task for human if none is assigned
         if currOperatorTask == 0:
             currOperatorTask = schedule.pop()
@@ -110,14 +112,19 @@ class CollaborationEnv(gym.Env):
             remaining_time -= currTaskRemaining
             doneTasks.append(currOperatorTask)
 
-            currTask = schedule.pop()
-            currTaskRemaining = self.operator.sample_exec_time(currTask)[0]
+            if len(schedule) == 0:
+                currOperatorTask = 0
+                currTaskRemaining = 0
+                break
+            else:
+                currOperatorTask = schedule.pop()
+                currTaskRemaining = self.operator.sample_exec_time(currOperatorTask)[0]
 
         # Finish a part of the task with remaining time
         currTaskRemaining -= remaining_time
 
         # Sample stress at the end of the step time
-        stress = self.operator.sample_stress(currTime+timePassed)
+        stress = -self.operator.sample_stress(currTime+timePassed)
         return doneTasks, currOperatorTask, currTaskRemaining, stress
 
     def render(self, mode='human', close=False):

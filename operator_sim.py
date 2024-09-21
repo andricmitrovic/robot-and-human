@@ -23,6 +23,8 @@ class OperatorGaussian:
         self.stressModel = joblib.load('./output/RESCH/avg_stress/ransac_model.pkl')
 
     def sample_exec_time(self, currTask):
+        if currTask == 12: #todo input some smart value for task 12
+            return [0.6]
         mu_ln, sigma_ln = self.tasks_params[currTask]
         return np.random.lognormal(mean=mu_ln, sigma=sigma_ln, size=1)
 
