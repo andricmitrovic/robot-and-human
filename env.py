@@ -4,6 +4,7 @@ import numpy as np
 
 from operators.operator_fake import FakeOperator
 from operators.operator_sim import AverageOperator
+import itertools
 
 robotExecTime = {7: 0.372,
                  8: 1.1,

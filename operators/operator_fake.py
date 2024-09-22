@@ -10,7 +10,7 @@ class FakeOperator:
         pass
 
     def sample_exec_time(self, currTask):
-        return [1]
+        return [2]
 
     def sample_stress(self, currTime):
         return currTime

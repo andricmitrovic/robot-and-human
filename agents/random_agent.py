@@ -4,18 +4,19 @@ import gymnasium as gym
 import matplotlib.pyplot as plt
 import register_env  # Make sure to import your registration module
 import numpy as np
+from tqdm import tqdm
 
 np.random.seed(42)
 
 
 def random_agent(env, verbose = 0):
     EPISODES = 2000
-    STEPS = 20
+    STEPS = 100
 
     times = []
     stress = []
     # Use the environment
-    for i_episode in range(EPISODES):
+    for i_episode in tqdm(range(EPISODES)):
         observation, _ = env.reset()
         stress_peak = 0
         if verbose:
@@ -62,10 +63,15 @@ def random_agent(env, verbose = 0):
     smoothed_running_mean = moving_average(running_mean_stress, window_size)
 
     # Plot smoothed running mean of stress
-    plt.plot(range(len(smoothed_running_mean)), smoothed_running_mean, color='blue')
+    plt.figure(figsize=(12, 6))
+    plt.scatter(range(len(stress)), stress, alpha=0.8, color='lightgray', label='Raw Stress Data', s=5)
+    plt.plot(range(len(smoothed_running_mean)), smoothed_running_mean, color='blue', label='Smoothed Running Mean')
     plt.xlabel('Episode')
-    plt.ylabel('Smoothed Running Mean Stress')
+    plt.ylabel('Stress')
     plt.title('Smoothed Running Mean of Stress over Episodes')
+    plt.axhline(y=np.mean(stress), color='red', linestyle='--', label='Baseline Mean')
+    plt.legend()
+    plt.grid(True)
     plt.savefig(f'{dir_path}/smoothed_running_mean_stress.png')
     plt.close()
 
