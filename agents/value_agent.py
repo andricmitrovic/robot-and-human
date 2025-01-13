@@ -125,13 +125,13 @@ def moving_average(data, window_size):
 
 if __name__ == '__main__':
     # Define env
-    env = gym.make('CollaborationEnv-v0')
+    env = gym.make('CollaborationEnv-v0', operator='stress+')
 
     epsilon = 1.0  # Start with full exploration
     epsilon_min = 0.1  # Minimum exploration probability
     epsilon_decay = 0.995  # Decay factor
 
-    EPISODES = 2000
+    EPISODES = 1000
     STEPS = 100
 
     plt.figure(figsize=(12, 6))
@@ -139,18 +139,19 @@ if __name__ == '__main__':
         # Define agent
         agent = ValueAgent(env, SAMPLE_SIZE)
         times = []
-        stress = []
+        rewards = []
+        # stress = []
         # Use the environment
         for i_episode in tqdm(range(EPISODES)):
             observation, _ = env.reset()
-            stress_peak = 0
+            # stress_peak = 0
             for t in range(STEPS):
                 remainingTasks = observation[3]
                 action = agent.select_best_action(observation, epsilon)
                 # Random agent
                 # action = env.action_space.sample(remainingTasks)
                 observation, reward, terminated, truncated, info = env.step(action)
-                stress_peak = min(stress_peak, reward)
+                # stress_peak = min(stress_peak, reward)
 
                 # Update the value function at each timestep
                 agent.update_value_function(observation, action, reward)
@@ -160,11 +161,22 @@ if __name__ == '__main__':
                 if terminated:
                     # print(f"Episode finished after {t + 1} timesteps")
                     times.append(observation[0].item())
+                    rewards.append(reward)
                     break
 
-            stress.append(stress_peak)
+            # stress.append(stress_peak)
         # Close env
         env.close()
+
+        rewards = np.array(rewards)
+        # mean_rewards = np.mean(rewards)
+        # print(f"Mean reward: {mean_rewards}")
+        # plt.plot(range(len(rewards)), rewards, alpha=0.5, label=f'Rewards with sample size {SAMPLE_SIZE}')
+        window_size = 100  # You can adjust the window size for more or less smoothing
+        smoothed_rewards = moving_average(rewards, window_size)
+        plt.plot(range(window_size - 1, len(rewards)), smoothed_rewards, label=f'Smoothed Rewards sample size {SAMPLE_SIZE}')
+        # plt.axhline(mean_rewards, color='red', label='Mean reward')
+
 
         # mean_exec_time = np.mean(times)
         # std_exec_time = np.std(times)
@@ -172,23 +184,28 @@ if __name__ == '__main__':
         # print(f"Standard Deviation exec time: {std_exec_time}")
 
         # Calculate running mean of stress
-        stress = np.array(stress)
-        running_mean_stress = np.cumsum(stress) / (np.arange(1, len(stress) + 1))
-        # Smooth the running mean using a moving average
-        window_size = 50  # You can adjust the window size for more or less smoothing
-        smoothed_running_mean = moving_average(running_mean_stress, window_size)
+        # stress = np.array(stress)
+        # running_mean_stress = np.cumsum(stress) / (np.arange(1, len(stress) + 1))
+        # # Smooth the running mean using a moving average
+        # window_size = 50  # You can adjust the window size for more or less smoothing
+        # smoothed_running_mean = moving_average(running_mean_stress, window_size)
 
         # Plot smoothed running mean of stress
-        plt.plot(range(len(smoothed_running_mean)), smoothed_running_mean, label=f'action sample size:{SAMPLE_SIZE}')
+        # plt.plot(range(len(smoothed_running_mean)), smoothed_running_mean, label=f'action sample size:{SAMPLE_SIZE}')
 
     dir_path = "../output/value_agent/"
     os.makedirs(dir_path, exist_ok=True)
 
-    plt.xlabel('Episode')
-    plt.ylabel('Stress')
-    plt.title('Smoothed Running Mean of Stress over Episodes')
-    # plt.axhline(y=np.mean(stress), color='red', linestyle='--', label='Baseline Mean')
+    plt.title('Episodic reward')
     plt.legend()
-    plt.grid(True)
-    plt.savefig(f'{dir_path}/smoothed_running_mean_stress.png')
+    plt.savefig(f'{dir_path}/rewards.png')
     plt.close()
+
+    # plt.xlabel('Episode')
+    # plt.ylabel('Stress')
+    # plt.title('Smoothed Running Mean of Stress over Episodes')
+    # # plt.axhline(y=np.mean(stress), color='red', linestyle='--', label='Baseline Mean')
+    # plt.legend()
+    # plt.grid(True)
+    # plt.savefig(f'{dir_path}/smoothed_running_mean_stress.png')
+    # plt.close()

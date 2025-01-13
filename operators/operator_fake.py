@@ -5,6 +5,7 @@ import joblib
 # Idea is that simple agent will learn to minimize total execution time, and bcs of big exec time for the fake operator
 # decide to give him fewer tasks than the robot
 
+
 class FakeOperator:
     def __init__(self):
         pass
@@ -13,4 +14,4 @@ class FakeOperator:
         return [2]
 
     def sample_stress(self, currTime):
-        return currTime
+        return 0

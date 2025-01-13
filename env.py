@@ -4,6 +4,7 @@ import numpy as np
 
 from operators.operator_fake import FakeOperator
 from operators.operator_sim import AverageOperator
+from operators.operator_increasing_stress import FakeStressOperator
 import itertools
 
 robotExecTime = {7: 0.372,
@@ -33,7 +34,7 @@ robotExecTime = {7: 0.372,
 
 
 class CollaborationEnv(gym.Env):
-    def __init__(self):
+    def __init__(self, operator='avg'):
         super(CollaborationEnv, self).__init__()
 
         self.action_space = VariableLengthActionSpace(low=1, high=20, max_len=20)
@@ -45,8 +46,14 @@ class CollaborationEnv(gym.Env):
             spaces.MultiBinary(20)))
 
         self.state = self.initState()
-        # self.operator = AverageOperator()
-        self.operator = FakeOperator()
+        if operator == 'fake':
+            self.operator = FakeOperator()
+        elif operator == 'stress+':
+            self.operator = FakeStressOperator()
+        elif operator == 'avg':
+            self.operator = AverageOperator()
+
+        self.reward_coef = [1, 0] #[0.8, 0.2]
 
     def initState(self):
         currTime = np.array(0, dtype=np.float32)
@@ -95,8 +102,8 @@ class CollaborationEnv(gym.Env):
             np.array(currTaskRemaining, dtype=np.float32),
             np.array(remainingTasks, dtype=np.int8)
         )
-
-        return self.state, stress, terminated, truncated, {}
+        reward = -self.reward_coef[0] * currTime + self.reward_coef[1] * stress
+        return self.state, reward, terminated, truncated, {}
 
     def stepHuman(self, timePassed, schedule):
         currTime, currOperatorTask, currTaskRemaining, _ = self.state
