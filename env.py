@@ -1,11 +1,9 @@
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
-
 from operators.operator_fake import FakeOperator
 from operators.operator_sim import AverageOperator
 from operators.operator_increasing_stress import FakeStressOperator
-import itertools
 
 robotExecTime = {7: 0.372,
                  8: 1.1,
@@ -24,13 +22,16 @@ robotExecTime = {7: 0.372,
 
 ###############
 ### STATE ###
+# v_0
+# (current time, currOperatorTask, currTaskRemaining, remainingTasks ---> 1...20)
 
-# (current time, currOperatorTask, currTaskRemaining, (remainingTasks ---> 1...20))
+# v_1
+# (current time, remainingTasks ---> 1...20)
 
 ###############
 ### ACTION ###
-# (robot schedule, human schedule)
-# !!! actions are done from right to left like a stack
+# (humanSchedule, robotSchedule)
+# actions are done from right to left
 
 
 class CollaborationEnv(gym.Env):
@@ -59,7 +60,7 @@ class CollaborationEnv(gym.Env):
         currTime = np.array(0, dtype=np.float32)
         currOperatorTask = np.array(0, dtype=np.int32)
         currTaskRemaining = np.array(0, dtype=np.float32)
-        remainingTasks = np.ones(20, dtype=np.int8)
+        remainingTasks = np.zeros(20, dtype=np.int8)
         return currTime, currOperatorTask, currTaskRemaining, remainingTasks
 
     def reset(self, seed=None, options=None):
@@ -81,17 +82,16 @@ class CollaborationEnv(gym.Env):
 
         # Step human
         doneTasks, currOperatorTask, currTaskRemaining, stress = self.stepHuman(timePassed, humanSchedule)
-        # stress = stress[0]
         # Update unfinished tasks
         if task is not None:
             doneTasks.append(task)
-        doneTasks.append(currOperatorTask) # it will be done in the future dont assign it, but maybe possible to reassign?
+        doneTasks.append(currOperatorTask)
         remainingTasks = self.state[3]
         for idx in doneTasks:
-            remainingTasks[idx-1] = 0
+            remainingTasks[idx-1] = 1
 
         # Check if all task are done
-        terminated = np.sum(remainingTasks) == 0
+        terminated = np.count_nonzero(remainingTasks) == 20
         truncated = False
 
         # Modify new state
@@ -145,6 +145,104 @@ class CollaborationEnv(gym.Env):
         pass
 
 
+class CollaborationEnv_V1(gym.Env):
+    def __init__(self, operator='avg'):
+        super(CollaborationEnv_V1, self).__init__()
+
+        self.action_space = VariableLengthActionSpace(low=1, high=20, max_len=20)
+
+        self.observation_space = spaces.Tuple((
+            spaces.Box(low=0, high=np.finfo(np.float32).max, shape=(), dtype=np.float32),
+            spaces.Box(low=-1, high=1, shape=(20,), dtype=np.int8)))
+
+        self.state = self.initState()
+        if operator == 'fake':
+            self.operator = FakeOperator()
+        elif operator == 'stress+':
+            self.operator = FakeStressOperator()
+        elif operator == 'avg':
+            self.operator = AverageOperator()
+
+        self.reward_coef = [1, 0] #[0.8, 0.2]
+
+        self.humanExecTime = [self.operator.sample_exec_time(i)[0] for i in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14]]
+
+    def initState(self):
+        currTime = np.array(0, dtype=np.float32)
+        remainingTasks = np.zeros(20, dtype=np.int8)
+        return currTime, remainingTasks
+
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
+        self.state = self.initState()
+        return self.state, {}
+
+    def step(self, action):
+        currTime, remainingTasks = self.state
+        humanSchedule = list(action[0])
+        robotSchedule = list(action[1])
+
+        # Step robot
+        if len(robotSchedule) > 0:
+            task = robotSchedule.pop()
+            timePassed = robotExecTime[task]
+            remainingTasks[task-1] = 1
+        else:
+            task = None
+            timePassed = 0.4
+
+        currTime = self.state[0] + timePassed
+
+        # Step human
+        remainingTasks = self.stepHuman(currTime, remainingTasks, humanSchedule)
+        stress = self.operator.sample_stress(currTime)
+
+        # Check if all task are done
+        terminated = np.count_nonzero(remainingTasks) == 20
+        truncated = False
+
+        # Modify new state
+        self.state = (
+            np.array(currTime, dtype=np.float32),
+            np.array(remainingTasks, dtype=np.int8)
+        )
+        reward = -self.reward_coef[0] * currTime + self.reward_coef[1] * stress
+        return self.state, reward, terminated, truncated, {}
+
+    def stepHuman(self, currTime, remainingTasks, humanSchedule):
+        completedHuman = [i for i, task in enumerate(remainingTasks) if task == -1]
+        completedTime = sum(self.humanExecTime[i] for i in completedHuman)
+        deltaTime = currTime - completedTime
+
+        # Check if no scheduled tasks
+        if len(humanSchedule) == 0:
+            return remainingTasks
+
+        # Start the first task for human if none is assigned
+        currTask = humanSchedule[-1]
+        taskTime = self.humanExecTime[currTask-1]
+
+        while deltaTime - taskTime >= 0:
+            humanSchedule.pop()
+            deltaTime -= taskTime
+            remainingTasks[currTask-1] = -1
+
+            if len(humanSchedule) == 0:
+                break
+            else:
+                currTask = humanSchedule[-1]
+                taskTime = self.humanExecTime[currTask-1]
+
+        return remainingTasks
+
+    def render(self, mode='human', close=False):
+        # Implement visualization
+        print(f"State: {self.state}")
+
+    def close(self):
+        pass
+
+
 class VariableLengthActionSpace(gym.Space):
     def __init__(self, low, high, max_len):
         # Initialize the bounds for each sequence
@@ -162,18 +260,8 @@ class VariableLengthActionSpace(gym.Space):
         super().__init__(shape=(2,), dtype=np.int32)  # 2 sequences of variable length
 
     def sample(self, remaining_tasks):
-        """
-            Sample actions for human and robot based on the remaining tasks,
-            ensuring all available human-specific and robot-specific tasks are included,
-            and then shuffle the tasks.
-
-            Parameters:
-            remaining_tasks (np.ndarray): A mask where 1 means the task is not done, 0 means it is done.
-
-            Returns:
-            tuple: Two sequences representing tasks assigned to the human and robot.
-            """
-        available_tasks = np.where(remaining_tasks == 1)[0] + 1
+        # Sample actions for human and robot based on the remaining tasks,
+        available_tasks = np.where(remaining_tasks == 0)[0] + 1
         if len(available_tasks) == 0:
             raise ValueError("No available tasks to sample from.")
         # Split available tasks into human, robot, and common tasks
@@ -200,15 +288,7 @@ class VariableLengthActionSpace(gym.Space):
         return (human_final_tasks, robot_final_tasks)
 
     def contains(self, x):
-        """
-        Check if the action x is valid based on the defined task constraints.
-
-        Parameters:
-        x (tuple): A tuple containing two lists of tasks: (human_tasks, robot_tasks)
-
-        Returns:
-        bool: True if the action is valid, False otherwise.
-        """
+        # Check if the action x is valid based on the defined task constraints.
         # Check if the given action is a tuple of two sequences
         if not isinstance(x, tuple) or len(x) != 2:
             return False
