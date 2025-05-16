@@ -15,8 +15,8 @@ register(
 )
 
 # One action environment
-# register(
-#     id='CollaborationEnv-v1',
-#     entry_point='env_v1:CollaborationEnvV1',
-#     kwargs={'operator': 'sum'}
-# )
+register(
+    id='CollaborationEnv-v2',
+    entry_point='env_v2:CollaborationEnv_V2',
+    kwargs={'operator': 'avg'}
+)
