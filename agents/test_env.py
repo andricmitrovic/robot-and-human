@@ -4,7 +4,7 @@ import numpy as np
 
 np.random.seed(42)
 
-env = gym.make('CollaborationEnv-v0')
+env = gym.make('CollaborationEnv-v0', operator='stress+')
 observation, _ = env.reset()
 env.render()
 # action = ([5, 4, 3, 2, 1], [18, 19, 20])

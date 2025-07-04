@@ -33,18 +33,15 @@ robotExecTime = {7: 0.372,
 # (humanSchedule, robotSchedule)
 # actions are done from right to left
 
-
-class CollaborationEnv(gym.Env):
+class CollaborationEnv_V1(gym.Env):
     def __init__(self, operator='avg'):
-        super(CollaborationEnv, self).__init__()
+        super(CollaborationEnv_V1, self).__init__()
 
         self.action_space = VariableLengthActionSpace(low=1, high=20, max_len=20)
 
         self.observation_space = spaces.Tuple((
             spaces.Box(low=0, high=np.finfo(np.float32).max, shape=(), dtype=np.float32),
-            spaces.Box(low=0, high=14, shape=(), dtype=np.int32),
-            spaces.Box(low=0, high=np.finfo(np.float32).max, shape=(), dtype=np.float32),
-            spaces.MultiBinary(20)))
+            spaces.Box(low=-1, high=1, shape=(20,), dtype=np.int8)))
 
         self.state = self.initState()
         if operator == 'fake':
@@ -56,12 +53,12 @@ class CollaborationEnv(gym.Env):
 
         self.reward_coef = [1, 0] #[0.8, 0.2]
 
+        self.humanExecTime = [self.operator.sample_exec_time(i)[0] for i in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14]]
+
     def initState(self):
         currTime = np.array(0, dtype=np.float32)
-        currOperatorTask = np.array(0, dtype=np.int32)
-        currTaskRemaining = np.array(0, dtype=np.float32)
         remainingTasks = np.zeros(20, dtype=np.int8)
-        return currTime, currOperatorTask, currTaskRemaining, remainingTasks
+        return currTime, remainingTasks
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -69,6 +66,7 @@ class CollaborationEnv(gym.Env):
         return self.state, {}
 
     def step(self, action):
+        currTime, remainingTasks = self.state
         humanSchedule = list(action[0])
         robotSchedule = list(action[1])
 
@@ -76,66 +74,54 @@ class CollaborationEnv(gym.Env):
         if len(robotSchedule) > 0:
             task = robotSchedule.pop()
             timePassed = robotExecTime[task]
+            remainingTasks[task-1] = 1
         else:
             task = None
             timePassed = 0.4
 
+        currTime = self.state[0] + timePassed
+
         # Step human
-        doneTasks, currOperatorTask, currTaskRemaining, stress = self.stepHuman(timePassed, humanSchedule)
-        # Update unfinished tasks
-        if task is not None:
-            doneTasks.append(task)
-        doneTasks.append(currOperatorTask)
-        remainingTasks = self.state[3]
-        for idx in doneTasks:
-            remainingTasks[idx-1] = 1
+        remainingTasks = self.stepHuman(currTime, remainingTasks, humanSchedule)
+        stress = self.operator.sample_stress(currTime)
 
         # Check if all task are done
         terminated = np.count_nonzero(remainingTasks) == 20
         truncated = False
 
         # Modify new state
-        currTime = self.state[0] + timePassed
         self.state = (
             np.array(currTime, dtype=np.float32),
-            np.array(currOperatorTask, dtype=np.int32),
-            np.array(currTaskRemaining, dtype=np.float32),
             np.array(remainingTasks, dtype=np.int8)
         )
         reward = -self.reward_coef[0] * currTime + self.reward_coef[1] * stress
         return self.state, reward, terminated, truncated, {}
 
-    def stepHuman(self, timePassed, schedule):
-        currTime, currOperatorTask, currTaskRemaining, _ = self.state
+    def stepHuman(self, currTime, remainingTasks, humanSchedule):
+        completedHuman = [i for i, task in enumerate(remainingTasks) if task == -1]
+        completedTime = sum(self.humanExecTime[i] for i in completedHuman)
+        deltaTime = currTime - completedTime
+
         # Check if no scheduled tasks
-        if len(schedule) == 0:
-            return [], 0, 0, -self.operator.sample_stress(currTime+timePassed)
+        if len(humanSchedule) == 0:
+            return remainingTasks
+
         # Start the first task for human if none is assigned
-        if currOperatorTask == 0:
-            currOperatorTask = schedule.pop()
-            currTaskRemaining = self.operator.sample_exec_time(currOperatorTask)[0]
+        currTask = humanSchedule[-1]
+        taskTime = self.humanExecTime[currTask-1]
 
-        doneTasks = []
-        remaining_time = timePassed
-        # Process tasks for human operator
-        while currTaskRemaining < remaining_time:
-            remaining_time -= currTaskRemaining
-            doneTasks.append(currOperatorTask)
+        while deltaTime - taskTime >= 0:
+            humanSchedule.pop()
+            deltaTime -= taskTime
+            remainingTasks[currTask-1] = -1
 
-            if len(schedule) == 0:
-                currOperatorTask = 0
-                currTaskRemaining = 0
+            if len(humanSchedule) == 0:
                 break
             else:
-                currOperatorTask = schedule.pop()
-                currTaskRemaining = self.operator.sample_exec_time(currOperatorTask)[0]
+                currTask = humanSchedule[-1]
+                taskTime = self.humanExecTime[currTask-1]
 
-        # Finish a part of the task with remaining time
-        currTaskRemaining -= remaining_time
-
-        # Sample stress at the end of the step time
-        stress = -self.operator.sample_stress(currTime+timePassed)
-        return doneTasks, currOperatorTask, currTaskRemaining, stress
+        return remainingTasks
 
     def render(self, mode='human', close=False):
         # Implement visualization

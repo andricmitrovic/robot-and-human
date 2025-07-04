@@ -10,7 +10,7 @@ register(
 # Improved original environment
 register(
     id='CollaborationEnv-v1',
-    entry_point='env:CollaborationEnv_V1',
+    entry_point='env_v1:CollaborationEnv_V1',
     kwargs={'operator': 'avg'}
 )
 

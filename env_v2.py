@@ -27,11 +27,9 @@ class CollaborationEnv_V2(gym.Env):
 
         self.action_space = VariableLengthActionSpace(low=1, high=20, max_len=20)
 
-        self.observation_space = spaces.Tuple((
-            spaces.Box(low=0, high=np.finfo(np.float32).max, shape=(), dtype=np.float32),
-            spaces.Box(low=-1,  high=1, shape=(20,), dtype=np.int8)))
+        self.observation_space = spaces.Box(low=0, high=np.finfo(np.float32).max, shape=(3,), dtype=np.float32)
 
-        self.state = self.initState()
+        self.state = None
         if operator == 'fake':
             self.operator = FakeOperator()
         elif operator == 'stress+':
@@ -39,51 +37,44 @@ class CollaborationEnv_V2(gym.Env):
         elif operator == 'avg':
             self.operator = AverageOperator()
 
-        self.reward_coef = [1, 0]
+        self.reward_coef = [-1.0, -0.5, -0.2]
 
-        self.humanExecTime = [self.operator.sample_exec_time(i)[0] for i in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14]]
-
-    def initState(self):
-        currTime = np.array(0, dtype=np.float32)
-        remainingTasks = np.zeros(20, dtype=np.int8)
-        return currTime, remainingTasks
+        self.humanExecTime = {i: self.operator.sample_exec_time(i)[0] for i in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14]}
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        self.state = self.initState()
-        return self.state, {}
+        self.state = (0.0, 0.0, 0.0)
+        return np.array(self.state, dtype=np.float32), {}
 
     def step(self, action):
-        humanSchedule = list(action[0])
-        robotSchedule = list(action[1])
+        humanSchedule, robotSchedule = list(action[0]), list(action[1])
 
-        # Execute robot tasks
-        robotTime = 0
-        for task in robotSchedule:
-            robotTime += robotExecTime[task]
-
-        # Execute human tasks
-        humanTime = 0
-        for task in humanSchedule:
-            humanTime += self.humanExecTime[task]
+        humanTime = sum(self.humanExecTime[task] for task in humanSchedule)
+        robotTime = sum(robotExecTime[task] for task in robotSchedule)
 
         totalTime = max(humanTime, robotTime)
-        idleTime = totalTime - min(humanTime, robotTime)
+        idleTime = abs(humanTime - robotTime)
 
-        # todo: array or one value?
-        stress = self.operator.sample_stress(currTime)
+        ### todo change stress sampler to more refined stress
+        stress = self.operator.sample_stress(totalTime)
 
-        # Check if all task are done
+        # Compute reward as a linear combination
+        reward = (
+            self.reward_coef[0] * totalTime +
+            self.reward_coef[1] * idleTime +
+            self.reward_coef[2] * stress
+        )
+
         terminated = True
         truncated = False
 
-        # todo: include idle time?
-        reward = -self.reward_coef[0] * currTime + self.reward_coef[1] * stress
-        return self.state, reward, terminated, truncated, {}
+        self.state = (totalTime, idleTime, stress)
+
+        return np.array(self.state, dtype=np.float32), reward, terminated, truncated, {}
 
     def render(self, mode='human', close=False):
         # Implement visualization
-        print(f"State: {self.state}")
+        print(f"Total Time: {self.state[0]:.2f}, Idle Time: {self.state[1]:.2f}, Stress: {self.state[2]:.2f}")
 
     def close(self):
         pass
@@ -105,33 +96,23 @@ class VariableLengthActionSpace(gym.Space):
         # Define the action space type
         super().__init__(shape=(2,), dtype=np.int32)  # 2 sequences of variable length
 
-    def sample(self, remaining_tasks):
-        # Sample actions for human and robot based on the remaining tasks,
-        available_tasks = np.where(remaining_tasks == 0)[0] + 1
-        if len(available_tasks) == 0:
-            raise ValueError("No available tasks to sample from.")
-        # Split available tasks into human, robot, and common tasks
-        available_human_tasks = [task for task in available_tasks if task in self.human_tasks]
-        available_robot_tasks = [task for task in available_tasks if task in self.robot_tasks]
-        available_common_tasks = [task for task in available_tasks if task in self.common_tasks]
+    def sample(self):
+        # Full task set: sample once per episode
+        all_tasks = np.arange(1, 21)
+        np.random.shuffle(all_tasks)
 
-        # Randomly assign common tasks to either human or robot
-        np.random.shuffle(available_common_tasks)
-        len_common_for_human = np.random.randint(0, len(available_common_tasks) + 1)
-
-        # Split the common tasks randomly between human and robot
-        common_for_human = available_common_tasks[:len_common_for_human]
-        common_for_robot = available_common_tasks[len_common_for_human:]
-
-        # All available human-specific tasks and robot-specific tasks must be included
-        human_final_tasks = available_human_tasks + common_for_human
-        robot_final_tasks = available_robot_tasks + common_for_robot
-
-        # Shuffle the final tasks for both human and robot
-        np.random.shuffle(human_final_tasks)
-        np.random.shuffle(robot_final_tasks)
-
-        return (human_final_tasks, robot_final_tasks)
+        human_final, robot_final = [], []
+        for task in all_tasks:
+            if task in self.human_tasks:
+                human_final.append(task)
+            elif task in self.robot_tasks:
+                robot_final.append(task)
+            elif task in self.common_tasks:
+                if np.random.rand() < 0.5:
+                    human_final.append(task)
+                else:
+                    robot_final.append(task)
+        return human_final, robot_final
 
     def contains(self, x):
         # Check if the action x is valid based on the defined task constraints.
