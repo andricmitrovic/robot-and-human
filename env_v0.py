@@ -34,9 +34,9 @@ robotExecTime = {7: 0.372,
 # actions are done from right to left
 
 
-class CollaborationEnv(gym.Env):
+class CollaborationEnv_v0(gym.Env):
     def __init__(self, operator='avg'):
-        super(CollaborationEnv, self).__init__()
+        super(CollaborationEnv_v0, self).__init__()
 
         self.action_space = VariableLengthActionSpace(low=1, high=20, max_len=20)
 
