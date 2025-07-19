@@ -22,12 +22,14 @@ robotExecTime = {7: 0.372,
 
 
 class CollaborationEnv_V2(gym.Env):
-    def __init__(self, operator='avg'):
+    def __init__(self, operator='avg', reward_coef=None):
         super(CollaborationEnv_V2, self).__init__()
 
+        if reward_coef is None:
+            reward_coef = [1, 0]
         self.action_space = VariableLengthActionSpace(low=1, high=20, max_len=20)
 
-        self.observation_space = spaces.Box(low=0, high=np.finfo(np.float32).max, shape=(3,), dtype=np.float32)
+        self.observation_space = spaces.Box(low=0, high=np.finfo(np.float32).max, shape=(2,), dtype=np.float32)
 
         self.state = None
         if operator == 'fake':
@@ -37,13 +39,15 @@ class CollaborationEnv_V2(gym.Env):
         elif operator == 'avg':
             self.operator = AverageOperator()
 
-        self.reward_coef = [-1.0, -0.5, -0.2]
+        self.reward_coef = reward_coef
 
         self.humanExecTime = {i: self.operator.sample_exec_time(i)[0] for i in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14]}
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        self.state = (0.0, 0.0, 0.0)
+        self.state = (0.0, 0.0)
+        # resample exec times on reset
+        self.humanExecTime = {i: self.operator.sample_exec_time(i)[0] for i in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14]}
         return np.array(self.state, dtype=np.float32), {}
 
     def step(self, action):
@@ -53,22 +57,21 @@ class CollaborationEnv_V2(gym.Env):
         robotTime = sum(robotExecTime[task] for task in robotSchedule)
 
         totalTime = max(humanTime, robotTime)
-        idleTime = abs(humanTime - robotTime)
+        # idleTime = abs(humanTime - robotTime)
 
         ### todo change stress sampler to more refined stress
-        stress = self.operator.sample_stress(totalTime)
+        stress = 0 #self.operator.sample_stress(totalTime)
 
         # Compute reward as a linear combination
         reward = (
-            self.reward_coef[0] * totalTime +
-            self.reward_coef[1] * idleTime +
-            self.reward_coef[2] * stress
+            -self.reward_coef[0] * totalTime -
+            self.reward_coef[1] * stress
         )
 
         terminated = True
         truncated = False
 
-        self.state = (totalTime, idleTime, stress)
+        self.state = (totalTime, stress)
 
         return np.array(self.state, dtype=np.float32), reward, terminated, truncated, {}
 
