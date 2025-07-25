@@ -34,3 +34,17 @@ register(
     entry_point='env_v4:CollaborationEnv_V4',
     kwargs={'operator': 'avg'}
 )
+
+# Action call every time human/robot finishes
+register(
+    id='CollaborationEnv-v5',
+    entry_point='env_v5:CollaborationEnv_V5',
+    kwargs={'operator': 'avg'}
+)
+
+# Action call every time human/robot finishes
+register(
+    id='CollaborationEnv-v6',
+    entry_point='env_v6:CollaborationEnv_V6',
+    kwargs={'operator': 'avg'}
+)
