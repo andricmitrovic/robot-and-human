@@ -48,3 +48,10 @@ register(
     entry_point='env_v6:CollaborationEnv_V6',
     kwargs={'operator': 'avg'}
 )
+
+# Simplified with only common task dynamic reschedule
+register(
+    id='CollaborationEnv-v7',
+    entry_point='env_v7:CollaborationEnv_V7',
+    kwargs={'operator': 'avg'}
+)

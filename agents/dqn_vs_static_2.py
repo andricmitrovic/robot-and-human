@@ -11,6 +11,10 @@ import os
 import pandas as pd
 import seaborn as sns
 
+random.seed(42)
+np.random.seed(42)
+torch.manual_seed(42)
+torch.cuda.manual_seed_all(42)
 
 # Top static policies
 # 1. Label: (RHRRRH), Avg Reward: -6.15
@@ -21,6 +25,21 @@ import seaborn as sns
 human_tasks = [1, 2, 3, 4, 5, 6, 10]
 robot_tasks = [11, 15, 16, 17, 18, 19, 20]
 common_tasks = [7, 8, 9, 12, 13, 14]
+
+robot_exec_time = {7: 0.372,
+                 8: 1.1,
+                 9: 0.685,
+                 11: 0.47,
+                 12: 0.489,
+                 13: 0.271,
+                 14: 1.1,
+                 15: 0.62,
+                 16: 0.333,
+                 17: 0.23,
+                 18: 0.878,
+                 19: 0.809,
+                 20: 0.711
+                 }
 
 
 def compute_policy(s):
@@ -48,13 +67,12 @@ mapping_robot = {7: 0, 8: 1, 9: 2, 11: 3, 12: 4, 13: 5, 14: 6, 15: 7, 16: 8, 17:
 EPISODES = 1000
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 def flatten_state(state):
     return np.concatenate([
-        state["task_pool"],
-        state["human_time"],
-        state["robot_time"],
-        state["human_exec"],
-        state["robot_exec"]
+        state["system_time"],
+        state["free_agent"],
+        state["task_mask"]
     ])
 
 
@@ -62,42 +80,18 @@ class DQN(nn.Module):
     def __init__(self, input_dim, output_dim):
         super(DQN, self).__init__()
         self.model = nn.Sequential(
-            nn.Linear(input_dim, 128),
+            nn.Linear(input_dim, 32),
             nn.ReLU(),
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Linear(64, output_dim)
+            # nn.Linear(32, 32),
+            # nn.LeakyReLU(),
+            nn.Linear(32, output_dim)
         )
 
     def forward(self, x):
         return self.model(x)
 
 
-def action_to_index(action):
-    task_idx, actor = action
-    return (task_idx - 1) * 2 + actor  # maps (task, actor) to [0, ..., 39]
-
-
-def index_to_action(index):
-    task_idx = index//2 + 1
-    actor = index % 2
-    return task_idx, actor
-
-def get_valid_action_mask(env):
-    mask = np.zeros(40, dtype=bool)
-    for task_idx in range(20):
-        task_id = task_idx + 1
-        if env.unwrapped.task_pool[task_idx] == 0:
-            continue  # Task already completed
-
-        for actor in [0, 1]:  # 0 = human, 1 = robot
-            if env.unwrapped.check_valid_action((task_id, actor)):
-                flat_index = action_to_index((task_id, actor))
-                mask[flat_index] = True
-    return mask
-
-
-def save_static_vs_dqn_boxplot(static_rewards, dqn_rewards, labels, filename="../output/plots/static_vs_dqn_boxplot.png"):
+def save_static_vs_dqn_boxplot(static_rewards, dqn_rewards, labels, filename="../output/plots/static_vs_dqn_boxplot_2.png"):
     data = []
 
     # Add static policies
@@ -137,14 +131,14 @@ def save_static_vs_dqn_boxplot(static_rewards, dqn_rewards, labels, filename="..
     print(f"Boxplot saved as: {filename}")
 
 
-env = gym.make('CollaborationEnv-v4')
+env = gym.make('CollaborationEnv-v7')
 state = env.reset()[0]
 state = flatten_state(state)
 input_dim = state.shape[0]
-action_space_size = 20 * 2  # 20 tasks × 2 actors
+action_space_size = env.action_space.n  # 6 actions
 
 policy_net = DQN(input_dim, action_space_size).to(device)
-policy_net.load_state_dict(torch.load("../output/saved_models/dqn_policy_model.pth"))
+policy_net.load_state_dict(torch.load("../output/saved_models/dqn_policy_model_v7.pth"))
 
 dqn_rewards = []
 p1_rewards = []
@@ -154,60 +148,52 @@ p4_rewards = []
 p5_rewards = []
 static_rewards = [p1_rewards, p2_rewards, p3_rewards, p4_rewards, p5_rewards]
 static_schedules = [policy_1, policy_2, policy_3, policy_4, policy_5]
+
+from operators.operator_sim import AverageOperator
+operator = AverageOperator()
+
 for episode in range(EPISODES):
-    state = env.reset()[0]
+    _ = env.reset()
 
-    human_exec = state['human_exec']
-    robot_exec = state['robot_exec']
-
+    # Run static policies
     for k in range(5):
         human_schedule, robot_schedule = static_schedules[k]
-        # Execute human
-        possible_task = human_tasks + common_tasks
-        time1 = 0
-        for task in human_schedule:
-            idx = mapping_human[task]
-            time1 += human_exec[idx]
-        # Execute robot
-        possible_task = robot_tasks + common_tasks
-        time2 = 0
-        for task in robot_schedule:
-            idx = mapping_robot[task]
-            time2 += robot_exec[idx]
+        time1 = sum(operator.sample_exec_time(task)[0] for task in human_schedule)
+        time2 = sum(robot_exec_time[task] for task in robot_schedule)
         static_rewards[k].append(max(time1, time2))
 
-
-    # Run dqn
-    state = flatten_state(state)
-    steps = 0
+    # Run DQN
+    state = flatten_state(env.reset()[0])
     while True:
         with torch.no_grad():
             state_tensor = torch.tensor(state).unsqueeze(0).to(device)
             q_values = policy_net(state_tensor)[0]
-            valid_mask = torch.tensor(get_valid_action_mask(env), device=device)
-            q_values[~valid_mask] = -1e9
+
+            valid_mask = torch.tensor(env.task_mask, dtype=torch.bool, device=device)
+            q_values[~valid_mask] = -1e9  # mask invalid actions
+
             action = q_values.argmax().item()
-        next_state, reward, done, _, _ = env.step(index_to_action(action))
-        next_state = flatten_state(next_state)
-        state = next_state
 
-        steps += 1
+        next_state, reward, done, _, _ = env.step(action)
+        state = flatten_state(next_state)
+
         if done:
-            dqn_rewards.append(-reward)
+            dqn_rewards.append(-reward)  # negate to match static policy cost
             break
-
 
 env.close()
 
-
+# Average rewards
 average_rewards = {
-    i+1: np.mean(rewards)
+    f"Policy {i+1}": np.mean(rewards)
     for i, rewards in enumerate(static_rewards)
 }
-
+print("Static policy average rewards:")
 print(average_rewards)
 
+print("\nDQN average reward:")
 print(np.mean(dqn_rewards))
 
+# Save boxplot
 labels = ['(RHRRRH)', '(HRHRRH)', '(HHHRRR)', '(RRHRHH)', '(RHHRHR)']
 save_static_vs_dqn_boxplot(static_rewards, dqn_rewards, labels)

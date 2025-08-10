@@ -128,10 +128,11 @@ class CollaborationEnv_V5(gym.Env):
 
         if actor == 0:
             duration = self.human_exec_time[task_id]
-            self.human_current = self.action_mapping(task_id, 0)
+            self.human_current = task_id
+            # print(self.human_current)
         else:
             duration = robot_exec_time[task_id]
-            self.robot_current = self.action_mapping(task_id, 1)
+            self.robot_current = task_id
 
         self.remaining_tasks.remove(task_id)
         self.task_pool[task_id - 1] = 0
@@ -164,12 +165,12 @@ class CollaborationEnv_V5(gym.Env):
 
     def execute_task_in_queue(self, actor):
         if actor:
-            self.robot_time += self.robot_exec[self.robot_current]
-            self.robot_completed[self.robot_current] = 1
+            self.robot_time += robot_exec_time[self.robot_current]
+            self.robot_completed[self.action_mapping(self.robot_current, actor)] = 1
             self.robot_current = 0
         else:
-            self.human_time += self.human_exec[self.human_current]
-            self.human_completed[self.human_current] = 1
+            self.human_time += self.human_exec_time[self.human_current]
+            self.human_completed[self.action_mapping(self.human_current, actor)] = 1
             self.human_current = 0
 
     def close(self):
