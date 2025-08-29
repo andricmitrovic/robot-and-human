@@ -120,8 +120,8 @@ class CollaborationEnv_V3(gym.Env):
 
         terminated = len(self.remaining_tasks) == 0
         max_time = max(self.human_time, self.robot_time)
-        reward = -duration
-        # reward = -max_time if terminated else 0
+        # reward = -duration
+        reward = -max_time #if terminated else 0
         truncated = False
         return self._get_obs(), reward, terminated, truncated, {}
 

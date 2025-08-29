@@ -3,7 +3,7 @@ from gymnasium.envs.registration import register
 # Original environment
 register(
     id='CollaborationEnv-v0',
-    entry_point='env:CollaborationEnv_v0',
+    entry_point='env_v0:CollaborationEnv_v0',
     kwargs={'operator': 'avg'}
 )
 

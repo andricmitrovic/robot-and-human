@@ -3,6 +3,8 @@ from gymnasium import spaces
 import numpy as np
 from operators.operator_fake import FakeOperator
 from operators.operator_sim import AverageOperator
+from operators.operator_noisy import NoisyOperator
+from operators.operator_improving import ImprovingOperator
 from operators.operator_increasing_stress import FakeStressOperator
 import random
 import logging
@@ -56,7 +58,20 @@ class CollaborationEnv_V7(gym.Env):
             # "robot_exec": spaces.Box(low=0, high=1e3, shape=(13,), dtype=np.float32),
         })
 
-        self.operator = AverageOperator()
+        self.operator_type = operator
+        self.operator = None
+        self.task_noise = None
+        self.step_counter = 0
+
+        if operator == 'avg':
+            self.operator = AverageOperator()
+        elif operator == 'noisy':
+            self.operator = NoisyOperator()
+        elif operator == 'improving':
+            self.operator = ImprovingOperator()
+
+        if self.operator is None:
+            raise ValueError('Operator model not recognized!')
 
         self.reward_coef = [-1.0, 0]  # total time, stress
         # self.human_exec_time = {
@@ -74,6 +89,13 @@ class CollaborationEnv_V7(gym.Env):
         self.system_time = min(self.human_end_time, self.robot_end_time)
         self.free_agent = 0 if self.human_end_time < self.robot_end_time else 1
         self.task_mask = np.ones(6, dtype=np.int8)
+        self.step_counter += 1
+        if self.operator_type == 'noisy':
+            self.operator = NoisyOperator()
+        if self.operator_type == 'improving' and self.step_counter > 20:
+            self.operator = ImprovingOperator()
+            self.step_counter = 0
+        # todo need to explicitly say when we changed operators
         return self._get_obs(), {}
 
     def _get_obs(self):

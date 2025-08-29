@@ -9,6 +9,7 @@ from collections import deque
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 import os
+import optuna
 
 random.seed(42)
 np.random.seed(42)
@@ -26,30 +27,63 @@ EPS_DECAY_EPISODES = 4000
 EPISODES = 10000
 SOFT_UPDATE_WEIGHT = 1e-3
 
-# Hyperparam search 1
-LR = 0.0006752145157882616
-BATCH_SIZE = 64
-EPS_START = 0.934795155826079
-EPS_END = 0.0008640759735554643
-EPS_DECAY_EPISODES = 2470
-SOFT_UPDATE_WEIGHT = 0.002227329676128557
-EPISODES = 5000
-# Best hyperparameters: {'lr': 0.0006752145157882616, 'batch_size': 64, 'eps_start': 0.934795155826079, 'eps_end': 0.0008640759735554643, 'eps_decay_episodes': 2470, 'soft_update_weight': 0.002227329676128557}
-# Best reward: 6.116301822065696
-
-
-# Hyperparam search 2
-# LR = 0.0021988638310055605
-# BATCH_SIZE = 64
-# EPS_START = 0.9016470282577296
-# EPS_END = 0.005344121921501771
-# EPS_DECAY_EPISODES = 1877
-# SOFT_UPDATE_WEIGHT = 0.00011580270732983362
-# EPISODES = 5000
-# Best hyperparameters: {'lr': 0.0021988638310055605, 'batch_size': 64, 'eps_start': 0.9016470282577296, 'eps_end': 0.005344121921501771, 'eps_decay_episodes': 1877, 'soft_update_weight': 0.00011580270732983362, 'hidden_size': 32, 'num_hidden_layers': 1, 'activation': 'LeakyReLU'}
-# Best reward: 6.110234813373994
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+
+def objective(trial):
+    # --- Suggest training hyperparameters ---
+    lr = trial.suggest_loguniform('lr', 1e-5, 1e-2)
+    batch_size = trial.suggest_categorical('batch_size', [64, 128, 256])
+    eps_end = trial.suggest_uniform('eps_end', 0.0, 0.2)
+    eps_decay = trial.suggest_int('eps_decay_episodes', 500, 5000)
+    episodes = trial.suggest_categorical('episodes', [4000, 6000, 8000, 10000])
+    soft_update_weight = trial.suggest_loguniform('soft_update_weight', 1e-4, 5e-2)
+
+    # --- Suggest model architecture ---
+    hidden_size = trial.suggest_categorical('hidden_size', [32, 64, 128, 256])
+    num_hidden_layers = trial.suggest_int('num_hidden_layers', 1, 3)
+    activation_choice = trial.suggest_categorical('activation', ['ReLU', 'LeakyReLU', 'Tanh'])
+
+    # Map activation choice to PyTorch layer
+    activation_map = {
+        'ReLU': nn.ReLU(),
+        'LeakyReLU': nn.LeakyReLU(),
+        'Tanh': nn.Tanh()
+    }
+    activation_fn = activation_map[activation_choice]
+
+    # --- Inject into globals for training ---
+    global LR, BATCH_SIZE, EPS_START, EPS_END, EPS_DECAY_EPISODES, SOFT_UPDATE_WEIGHT, EPISODES
+    LR = lr
+    BATCH_SIZE = batch_size
+    EPS_END = eps_end
+    EPISODES = episodes
+    EPS_DECAY_EPISODES = eps_decay
+    SOFT_UPDATE_WEIGHT = soft_update_weight
+
+    # Redefine DQN with tuned architecture
+    class TunedDQN(nn.Module):
+        def __init__(self, input_dim, output_dim):
+            super().__init__()
+            layers = [nn.Linear(input_dim, hidden_size), activation_fn]
+            for _ in range(num_hidden_layers - 1):
+                layers.append(nn.Linear(hidden_size, hidden_size))
+                layers.append(activation_fn)
+            layers.append(nn.Linear(hidden_size, output_dim))
+            self.model = nn.Sequential(*layers)
+
+        def forward(self, x):
+            return self.model(x)
+
+    # Patch global DQN class reference
+    global DQN
+    DQN = TunedDQN
+
+    # --- Run a shorter training to evaluate ---
+    rewards = run_training_for_tuning(episodes=EPISODES)  # shorter training for speed
+
+    return np.mean(rewards[-1000:])  # Mean reward over last 1000 episodes
 
 
 def flatten_state(state):
@@ -112,17 +146,23 @@ def soft_update(target, source, tau):
         target_param.data.copy_(tau * param.data + (1.0 - tau) * target_param.data)
 
 
-def train():
-    env = gym.make('CollaborationEnv-v7')  # Ensure it's registered properly
+def run_training_for_tuning(episodes=500):
+    # A shortened version of your train() loop
+    import gymnasium as gym
+    import torch
+    import random
+    from collections import deque
+    import numpy as np
+
+    env = gym.make('CollaborationEnv-v7', operator='noisy')
     state = flatten_state(env.reset()[0])
     input_dim = state.shape[0]
-    action_space_size = env.action_space.n  # 6
+    action_space_size = env.action_space.n
 
     policy_net = DQN(input_dim, action_space_size).to(device)
     target_net = DQN(input_dim, action_space_size).to(device)
     target_net.load_state_dict(policy_net.state_dict())
     optimizer = optim.Adam(policy_net.parameters(), lr=LR)
-
     buffer = ReplayBuffer(BUFFER_SIZE)
     epsilon = EPS_START
 
@@ -136,39 +176,30 @@ def train():
 
     all_rewards = []
 
-    for episode in range(EPISODES):
+    for episode in range(episodes):
         state = flatten_state(env.reset()[0])
         total_reward = 0
-        steps = 0
 
         while True:
-            # ε-greedy action selection
             if random.random() < epsilon:
                 action = env.unwrapped.sample_valid_action()
             else:
                 with torch.no_grad():
                     state_tensor = torch.tensor(state).unsqueeze(0).to(device)
                     q_values = policy_net(state_tensor)[0]
-
-                    # Mask invalid actions
                     valid_mask = torch.tensor(env.task_mask, dtype=torch.bool, device=device)
-                    q_values[~valid_mask] = -1e9  # Suppress invalid actions
+                    q_values[~valid_mask] = -1e9
                     action = q_values.argmax().item()
 
             next_state, reward, done, _, _ = env.step(action)
             next_state_flat = flatten_state(next_state)
             buffer.push((state, action, reward, done, next_state_flat))
             state = next_state_flat
-
-            steps += 1
-
             if done:
                 total_reward = -reward
                 break
 
-        # Sample and train from buffer
         states, actions, rewards, dones, next_states = buffer_to_tensor(buffer.sample(BATCH_SIZE))
-
         q_values = policy_net(states).gather(1, actions.unsqueeze(1))
         with torch.no_grad():
             max_next_q_values = target_net(next_states).max(1, keepdim=True)[0]
@@ -181,42 +212,20 @@ def train():
 
         soft_update(target_net, policy_net, SOFT_UPDATE_WEIGHT)
 
-        # Epsilon decay
         if episode < EPS_DECAY_EPISODES:
             epsilon = EPS_START - (EPS_START - EPS_END) * (episode / EPS_DECAY_EPISODES)
         else:
             epsilon = EPS_END
 
-        print(f"Episode {episode+1} | Total reward: {total_reward:.2f} | Steps: {steps} | Epsilon: {epsilon:.3f}")
         all_rewards.append(total_reward)
 
     env.close()
-
-    os.makedirs("../output/saved_models", exist_ok=True)
-    torch.save(policy_net.state_dict(), "../output/saved_models/dqn_policy_model_v7_avg.pth")
-
-    # Plotting
-    window_size = 100
-    rewards_array = np.array(all_rewards)
-    moving_avg = np.convolve(rewards_array, np.ones(window_size)/window_size, mode='valid')
-    std_dev = np.array([
-        rewards_array[max(0, i - window_size):i].std()
-        for i in range(window_size, len(rewards_array) + 1)
-    ])
-
-    plt.figure(figsize=(10, 5))
-    plt.plot(moving_avg, label='Moving Average Reward')
-    plt.fill_between(range(len(moving_avg)), moving_avg - std_dev, moving_avg + std_dev, alpha=0.3)
-    plt.xlabel("Training episode")
-    plt.ylabel("Reward")
-    plt.title("DQN Reward Progress")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig("../output/plots/dqn_reward_plot.png")
-
-    print('Mean reward last 1000 episodes:')
-    print(np.mean(all_rewards[-1000:]))
+    return all_rewards
 
 
 if __name__ == "__main__":
-    train()
+    study = optuna.create_study(direction="minimize")
+    study.optimize(objective, n_trials=30)
+
+    print("Best hyperparameters:", study.best_params)
+    print("Best reward:", study.best_value)

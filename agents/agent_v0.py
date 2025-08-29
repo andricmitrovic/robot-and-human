@@ -125,10 +125,10 @@ def moving_average(data, window_size):
 
 if __name__ == '__main__':
     # Define env
-    env = gym.make('CollaborationEnv-v0', operator='stress+')
+    env = gym.make('CollaborationEnv-v0')
 
     epsilon = 1.0  # Start with full exploration
-    epsilon_min = 0.1  # Minimum exploration probability
+    epsilon_min = 0  # Minimum exploration probability
     epsilon_decay = 0.995  # Decay factor
 
     EPISODES = 1000

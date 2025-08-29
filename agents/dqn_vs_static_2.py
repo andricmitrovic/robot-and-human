@@ -3,18 +3,22 @@ import register_env
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import random
-from collections import deque
 from matplotlib import pyplot as plt
-import os
 import pandas as pd
 import seaborn as sns
+from operators.operator_sim import AverageOperator
+from operators.operator_noisy import NoisyOperator
+from operators.operator_improving import ImprovingOperator
 
 random.seed(42)
 np.random.seed(42)
 torch.manual_seed(42)
 torch.cuda.manual_seed_all(42)
+
+# Set operator type for which you are running a comparison
+operator_type = 'avg'
+model_pth = "../output/saved_models/dqn_policy_model_v7_avg.pth"
 
 # Top static policies
 # 1. Label: (RHRRRH), Avg Reward: -6.15
@@ -64,7 +68,7 @@ policy_5 = compute_policy("RHHRHR")
 mapping_human = {1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 10: 6, 7: 7, 8: 8, 9: 9, 12: 10, 13: 11, 14: 12}
 mapping_robot = {7: 0, 8: 1, 9: 2, 11: 3, 12: 4, 13: 5, 14: 6, 15: 7, 16: 8, 17: 9, 18: 10, 19: 11, 20: 12}
 
-EPISODES = 1000
+EPISODES = 10000
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -91,7 +95,7 @@ class DQN(nn.Module):
         return self.model(x)
 
 
-def save_static_vs_dqn_boxplot(static_rewards, dqn_rewards, labels, filename="../output/plots/static_vs_dqn_boxplot_2.png"):
+def save_static_vs_dqn_boxplot(static_rewards, dqn_rewards, labels, filename=f"../output/plots/static_vs_dqn_boxplot_{operator_type}.png"):
     data = []
 
     # Add static policies
@@ -131,14 +135,14 @@ def save_static_vs_dqn_boxplot(static_rewards, dqn_rewards, labels, filename="..
     print(f"Boxplot saved as: {filename}")
 
 
-env = gym.make('CollaborationEnv-v7')
+env = gym.make('CollaborationEnv-v7', operator=operator_type)
 state = env.reset()[0]
 state = flatten_state(state)
 input_dim = state.shape[0]
 action_space_size = env.action_space.n  # 6 actions
 
 policy_net = DQN(input_dim, action_space_size).to(device)
-policy_net.load_state_dict(torch.load("../output/saved_models/dqn_policy_model_v7.pth"))
+policy_net.load_state_dict(torch.load(model_pth))
 
 dqn_rewards = []
 p1_rewards = []
@@ -149,8 +153,13 @@ p5_rewards = []
 static_rewards = [p1_rewards, p2_rewards, p3_rewards, p4_rewards, p5_rewards]
 static_schedules = [policy_1, policy_2, policy_3, policy_4, policy_5]
 
-from operators.operator_sim import AverageOperator
-operator = AverageOperator()
+
+if operator_type == 'avg':
+    operator = AverageOperator()
+if operator_type == 'noisy':
+    operator = NoisyOperator()
+if operator_type == 'improving':
+    operator = ImprovingOperator()
 
 for episode in range(EPISODES):
     _ = env.reset()
@@ -197,3 +206,6 @@ print(np.mean(dqn_rewards))
 # Save boxplot
 labels = ['(RHRRRH)', '(HRHRRH)', '(HHHRRR)', '(RRHRHH)', '(RHHRHR)']
 save_static_vs_dqn_boxplot(static_rewards, dqn_rewards, labels)
+
+np.save(f"../output/static_rewards_{operator_type}.npy", static_rewards[0])
+np.save(f"../output/dqn_rewards_{operator_type}.npy", dqn_rewards)
