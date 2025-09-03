@@ -62,8 +62,8 @@ class ImprovingOperator:
 
         # Update mean toward minimum mean after sampling
         min_mu = self.task_min_means[currTask]
-        new_mu = mu - self.improvement_step * (mu - min_mu)
-        self.task_means[currTask] = new_mu
+        if mu > min_mu:
+            self.task_means[currTask] = mu - self.improvement_step * (mu - min_mu)
 
         return sample
 

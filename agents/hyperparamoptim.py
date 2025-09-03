@@ -118,13 +118,14 @@ class ReplayBuffer:
 
     def sample(self, batch_size):
         batch = random.sample(self.buffer, batch_size)
-        states, actions, rewards, dones, next_states = zip(*batch)
+        states, actions, rewards, dones, next_states, next_masks = zip(*batch)
         return (
             states,
             actions,
             rewards,
             dones,
-            next_states
+            next_states,
+            next_masks
         )
 
     def __len__(self):
@@ -132,13 +133,14 @@ class ReplayBuffer:
 
 
 def buffer_to_tensor(buffer):
-    states, actions, rewards, dones, next_states = buffer
+    states, actions, rewards, dones, next_states, next_masks = buffer
     state_tensor = torch.tensor(np.array(states), dtype=torch.float32).to(device)
     action_tensor = torch.tensor(np.array(actions), dtype=torch.int64).to(device)
     rewards = torch.tensor(np.array(rewards), dtype=torch.float32).unsqueeze(1).to(device)
     dones = torch.tensor(np.array(dones), dtype=torch.float32).unsqueeze(1).to(device)
     next_states = torch.tensor(np.array(next_states), dtype=torch.float32).to(device)
-    return state_tensor, action_tensor, rewards, dones, next_states
+    next_masks = torch.tensor(np.array(next_masks), dtype=torch.bool).to(device)
+    return state_tensor, action_tensor, rewards, dones, next_states, next_masks
 
 
 def soft_update(target, source, tau):
@@ -169,9 +171,10 @@ def run_training_for_tuning(episodes=500):
     # Fill replay buffer
     for _ in range(MIN_REPLAY_SIZE):
         action = env.unwrapped.sample_valid_action()
+        valid_mask = env.task_mask.copy()
         next_state, reward, done, _, _ = env.step(action)
         next_state = flatten_state(next_state)
-        buffer.push((state, action, reward, done, next_state))
+        buffer.push((state, action, reward, done, next_state, valid_mask))
         state = next_state if not done else flatten_state(env.reset()[0])
 
     all_rewards = []
@@ -191,19 +194,32 @@ def run_training_for_tuning(episodes=500):
                     q_values[~valid_mask] = -1e9
                     action = q_values.argmax().item()
 
+            valid_mask = env.task_mask.copy()
             next_state, reward, done, _, _ = env.step(action)
             next_state_flat = flatten_state(next_state)
-            buffer.push((state, action, reward, done, next_state_flat))
+            buffer.push((state, action, reward, done, next_state_flat, valid_mask))
             state = next_state_flat
             if done:
-                total_reward = -reward
+                # total_reward = -reward
+                total_reward = max(env.unwrapped.robot_end_time, env.unwrapped.human_end_time)
                 break
 
-        states, actions, rewards, dones, next_states = buffer_to_tensor(buffer.sample(BATCH_SIZE))
+        states, actions, rewards, dones, next_states, next_masks = buffer_to_tensor(buffer.sample(BATCH_SIZE))
         q_values = policy_net(states).gather(1, actions.unsqueeze(1))
+        # with torch.no_grad():
+        #     max_next_q_values = target_net(next_states).max(1, keepdim=True)[0]
+        #     target_q = rewards + max_next_q_values * (1 - dones)
         with torch.no_grad():
-            max_next_q_values = target_net(next_states).max(1, keepdim=True)[0]
-            target_q = rewards + max_next_q_values * (1 - dones)
+            #  1) action selection with ONLINE net
+            q_next_online = policy_net(next_states)
+            q_next_online[~next_masks] = -1e9
+            next_actions = q_next_online.argmax(dim=1, keepdim=True)
+
+            # 2) action evaluation with TARGET net
+            q_next_target = target_net(next_states).gather(1, next_actions)
+            q_next_target = q_next_target * (1.0 - dones)
+            # Double DQN target
+            target_q = rewards + q_next_target
 
         loss = nn.functional.mse_loss(q_values, target_q)
         optimizer.zero_grad()

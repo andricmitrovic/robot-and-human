@@ -17,14 +17,14 @@ from tqdm import tqdm
 # Hyperparameters
 LR = 1e-3
 BATCH_SIZE = 128
-BUFFER_SIZE = 1000000
+BUFFER_SIZE = 5000
 MIN_REPLAY_SIZE = 5000
 EPS_START = 1.0
 EPS_END = 0.0
 EPS_DECAY = 0.9995
 EPS_DECAY_EPISODES = 2400
 TARGET_UPDATE_FREQ = 100
-EPISODES = 10000
+EPISODES = 6000
 SOFT_UPDATE_WEIGHT = 1e-3
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -168,7 +168,7 @@ def train():
             buffer.push((state, action, reward, done, next_state))
             state = next_state
             if done:
-                total_reward = -max(next_state[-2], next_state[-3])
+                total_reward = -reward
 
             steps += 1
 
@@ -217,7 +217,7 @@ def train():
     plt.title("Average Total Reward per Episode")
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig("../output/plots/dqn_reward_plot_full_schedule.png")  # Save the plot if needed
+    plt.savefig("../output/plots/dqn_reward_plot_action_actor.png")  # Save the plot if needed
     #plt.show()
 
 

@@ -355,6 +355,137 @@ def visualize_strees_over_time(operator, rescheduling = True):
     plt.savefig(f'{dir_path}/operator_{operator}.png')
     plt.close()
 
+def visualize_3d_time_stress_all_operators(
+    operators=(1, 2, 3, 4, 6, 7),
+    *,
+    normalize=True,
+    rescheduling=True,
+    bin_count_time=4,
+    bin_width_time=1.0,
+    bin_count_stress=4
+):
+    """
+    Aggregate data across the given operators and save per-task 3D histograms
+    of (exec time, stress) frequency, mirroring `visualize_3d_time_stress`.
+
+    Parameters
+    ----------
+    operators : iterable[int]
+        Operator IDs to include in the aggregation.
+    normalize : bool
+        If True, normalize execution time per task across ALL included operators.
+    rescheduling : bool
+        If True, reads from ./data/csv/RESCH/P0*.csv, else from ./data/csv/NO_RESCH/P0*.csv
+    bin_count_time : int
+        Number of bins for the (normalized) execution time axis.
+    bin_width_time : float
+        Bin width for the (normalized) execution time axis (used to center bins around 0).
+    bin_count_stress : int
+        Number of bins for the stress axis (auto-ranged to data min/max).
+    """
+    # 1) Collect all (time, stress) pairs per task across operators
+    task_keys = ['1','2','3','4','5','6','7','8','9','10','12','13','14']
+    agg = {k: [] for k in task_keys}
+
+    base = './data/csv/RESCH/P0' if rescheduling else './data/csv/NO_RESCH/P0'
+    for op in operators:
+        path = f"{base}{op}.csv"
+        try:
+            df = prep_data(path)
+        except Exception as e:
+            print(f"[WARN] Skipping operator {op}: {e}")
+            continue
+
+        for _, row in df.iterrows():
+            tasks = row['opTaskToSave']
+            times = row['timetoSave']
+            stress = row['mwtoSave']
+            for i in range(len(tasks)):
+                k = str(tasks[i])
+                if k in agg:
+                    agg[k].append((times[i], stress[i]))
+
+    # 2) Output directory
+    out_dir = "./output/RESCH/exec_time_stress_frequency/all_operators" if rescheduling \
+              else "./output/NO_RESCH/exec_time_stress_frequency/all_operators"
+    os.makedirs(out_dir, exist_ok=True)
+
+    # 3) Define (normalized) time bins centered around 0 to match original
+    half_width = bin_width_time * (bin_count_time // 2)
+    time_bins = np.linspace(-half_width, half_width, bin_count_time + 1)
+
+    # 4) For each task, build 2D histogram and plot
+    for task, vals in agg.items():
+        if not vals:
+            continue
+
+        times, stresses = zip(*vals)
+        times = np.array(times, dtype=float)
+        stresses = np.array(stresses, dtype=float)
+
+        # Normalize time per task across ALL operators (global per-task mean/std)
+        if normalize and len(times) > 1:
+            mu = times.mean()
+            sd = times.std()
+            if sd > 0:
+                times = (times - mu) / sd
+            else:
+                # Degenerate case: all same -> keep zeros
+                times = times - mu
+
+        # Stress bins: equal-width over the observed range for this task
+        # (keeps y-axis scaling comparable within each task)
+        if len(stresses) > 1 and np.ptp(stresses) > 0:
+            stress_bins = np.linspace(stresses.min(), stresses.max(), bin_count_stress + 1)
+        else:
+            # Fallback to a tiny range to avoid identical bin edges
+            lo = stresses.min() if len(stresses) else 0.0
+            hi = lo + 1e-6
+            stress_bins = np.linspace(lo, hi, bin_count_stress + 1)
+
+        # Build 2D histogram
+        hist, x_edges, y_edges = np.histogram2d(times, stresses, bins=(time_bins, stress_bins))
+
+        # Prepare data for bar3d
+        # Note: histogram2d returns shape (len(x_bins)-1, len(y_bins)-1) but
+        # our original plotting assumed (y, x). We'll keep consistent with the original:
+        # Create meshgrid over indices, then flatten.
+        x_idx, y_idx = np.meshgrid(np.arange(hist.shape[1]), np.arange(hist.shape[0]))
+        x_flat = x_idx.flatten()
+        y_flat = y_idx.flatten()
+        z_flat = hist.flatten()
+
+        if z_flat.max() == 0:
+            # Nothing to plot (all zeros)
+            continue
+
+        # 3D bar plot (mirrors original style)
+        fig = plt.figure(figsize=(10, 8))
+        ax = fig.add_subplot(111, projection='3d')
+        ax.bar3d(
+            x_flat, y_flat, np.zeros_like(z_flat),
+            1, 1, z_flat,
+            color=plt.cm.magma(z_flat / np.max(z_flat))
+        )
+
+        ax.set_xlabel('Normalized Exec Time' if normalize else 'Exec Time')
+        ax.set_ylabel('Stress')
+        ax.set_zlabel('Frequency')
+        ax.set_title(f'3D Histogram — Task {task} (Aggregated)')
+
+        # Tick labels should match the actual bin edges
+        ax.set_xticks(np.arange(bin_count_time))
+        ax.set_yticks(np.arange(bin_count_stress))
+        ax.set_xticklabels(np.round(x_edges[:-1], 2))
+        ax.set_yticklabels(np.round(y_edges[:-1], 2))
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(out_dir, f"task_{task}.png"))
+        plt.close()
+
+    # (Optional) return simple counts per task for quick sanity checks
+    return {t: len(v) for t, v in agg.items()}
+
 
 def exec_time_per_cycle(operator, normalize = True, rescheduling = True):
     # Get data
@@ -587,5 +718,6 @@ if __name__ == '__main__':
 
     # box_plot_exec_time_vs_robot()
 
-    extract_stress_summary()
+    # extract_stress_summary()
 
+    visualize_3d_time_stress_all_operators()

@@ -67,7 +67,7 @@ def save_top_5_boxplot(reward_history, top_5, filename="../output/plots/top_5_re
 
 all_schedules = generate_all_schedules()
 num_episodes = 10000
-env = gym.make('CollaborationEnv-v2')
+env = gym.make('CollaborationEnv-v2', operator='improving')
 reward_history = {}
 
 for human_schedule, robot_schedule, label in tqdm(all_schedules):

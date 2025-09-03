@@ -8,6 +8,7 @@ from operators.operator_improving import ImprovingOperator
 from operators.operator_increasing_stress import FakeStressOperator
 import random
 import logging
+from itertools import product
 
 robot_exec_time = {7: 0.372,
                  8: 1.1,
@@ -57,11 +58,13 @@ class CollaborationEnv_V7(gym.Env):
             # "human_exec": spaces.Box(low=0, high=1e3, shape=(13,), dtype=np.float32),
             # "robot_exec": spaces.Box(low=0, high=1e3, shape=(13,), dtype=np.float32),
         })
+        self.exec_times = {}
 
         self.operator_type = operator
         self.operator = None
         self.task_noise = None
         self.step_counter = 0
+        self.optimal_reward = None
 
         if operator == 'avg':
             self.operator = AverageOperator()
@@ -84,10 +87,6 @@ class CollaborationEnv_V7(gym.Env):
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        self.human_end_time, self.robot_end_time = self.execute_uncommon_tasks()
-
-        self.system_time = min(self.human_end_time, self.robot_end_time)
-        self.free_agent = 0 if self.human_end_time < self.robot_end_time else 1
         self.task_mask = np.ones(6, dtype=np.int8)
         self.step_counter += 1
         if self.operator_type == 'noisy':
@@ -95,7 +94,16 @@ class CollaborationEnv_V7(gym.Env):
         if self.operator_type == 'improving' and self.step_counter > 20:
             self.operator = ImprovingOperator()
             self.step_counter = 0
-        # todo need to explicitly say when we changed operators
+        # Sample exec times
+        self.exec_times = {task:self.operator.sample_exec_time(task)[0] for task in self.human_possible}
+
+        # Initial uncommon task execution
+        self.human_end_time, self.robot_end_time = self.execute_uncommon_tasks()
+        self.system_time = min(self.human_end_time, self.robot_end_time)
+        self.free_agent = 0 if self.human_end_time < self.robot_end_time else 1
+
+        # Bruteforce optimal policy
+        self.optimal_reward = self.calculate_optimal_end_time()
         return self._get_obs(), {}
 
     def _get_obs(self):
@@ -112,7 +120,7 @@ class CollaborationEnv_V7(gym.Env):
         robot_end_time = 0
 
         for task in self.human_tasks:
-            human_end_time += self.operator.sample_exec_time(task)[0]
+            human_end_time += self.exec_times[task]
         for task in self.robot_tasks:
             robot_end_time += robot_exec_time[task]
 
@@ -130,11 +138,13 @@ class CollaborationEnv_V7(gym.Env):
         if not self.task_mask[idx]:
             raise ValueError(f"Action already done!")
 
+        old_final_time = max(self.robot_end_time, self.human_end_time)
+
         self.task_mask[idx] = 0
         task = self.inverse_action_mapping(idx)
 
         if self.free_agent == 0:
-            duration = self.operator.sample_exec_time(task)[0]
+            duration = self.exec_times[task]
             self.human_end_time += duration
         else:
             duration = robot_exec_time[task]
@@ -146,15 +156,14 @@ class CollaborationEnv_V7(gym.Env):
             self.free_agent = 1
 
         self.system_time = min(self.robot_end_time, self.human_end_time)
-
         if np.all(self.task_mask == 0):
             terminated = True
         else:
-            # self.system_time = max(self.robot_end_time, self.human_end_time)
             terminated = False
-        reward = -max(self.robot_end_time, self.human_end_time)
-        # max_time = max(self.human_time, self.robot_time)
-        # reward = -self.system_time
+
+        new_final_time = max(self.robot_end_time, self.human_end_time)
+        reward = old_final_time - new_final_time #negative if increased total execution time
+        # reward = -max(self.robot_end_time, self.human_end_time)
         return self._get_obs(), reward, terminated, False, {}
 
     def render(self, mode='human'):
@@ -171,4 +180,17 @@ class CollaborationEnv_V7(gym.Env):
 
         return random.choice(valid_indices)
 
-
+    def calculate_optimal_end_time(self):
+        best_time = 1000
+        for combo in product([0, 1], repeat=len(self.common_tasks)):
+            tmp_human_time = self.human_end_time
+            tmp_robot_time = self.robot_end_time
+            for i, assign_to in enumerate(combo):
+                task = self.common_tasks[i]
+                if assign_to == 0:
+                    tmp_human_time += self.exec_times[task]
+                else:
+                    tmp_robot_time += robot_exec_time[task]
+            best_time = min(max(tmp_human_time, tmp_robot_time), best_time)
+        # print(best_time)
+        return best_time

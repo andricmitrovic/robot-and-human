@@ -1,7 +1,7 @@
 import numpy as np
 from scipy import stats
 
-operator_type = 'avg'
+operator_type = 'improving'
 
 # Example: arrays of rewards from simulations
 dqn_rewards = np.load(f"./output/dqn_rewards_{operator_type}.npy")       # e.g. 10,000 rewards

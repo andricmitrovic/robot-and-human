@@ -3,6 +3,8 @@ from gymnasium import spaces
 import numpy as np
 from operators.operator_fake import FakeOperator
 from operators.operator_sim import AverageOperator
+from operators.operator_noisy import NoisyOperator
+from operators.operator_improving import ImprovingOperator
 from operators.operator_increasing_stress import FakeStressOperator
 
 robotExecTime = {7: 0.372,
@@ -32,12 +34,17 @@ class CollaborationEnv_V2(gym.Env):
         self.observation_space = spaces.Box(low=0, high=np.finfo(np.float32).max, shape=(2,), dtype=np.float32)
 
         self.state = None
-        if operator == 'fake':
-            self.operator = FakeOperator()
-        elif operator == 'stress+':
-            self.operator = FakeStressOperator()
-        elif operator == 'avg':
+        self.operator_type = operator
+        self.operator = None
+        self.task_noise = None
+        self.step_counter = 0
+
+        if operator == 'avg':
             self.operator = AverageOperator()
+        elif operator == 'noisy':
+            self.operator = NoisyOperator()
+        elif operator == 'improving':
+            self.operator = ImprovingOperator()
 
         self.reward_coef = reward_coef
 
@@ -47,6 +54,12 @@ class CollaborationEnv_V2(gym.Env):
         super().reset(seed=seed)
         self.state = (0.0, 0.0)
         # resample exec times on reset
+        self.step_counter += 1
+        if self.operator_type == 'noisy':
+            self.operator = NoisyOperator()
+        if self.operator_type == 'improving' and self.step_counter > 20:
+            self.operator = ImprovingOperator()
+            self.step_counter = 0
         self.humanExecTime = {i: self.operator.sample_exec_time(i)[0] for i in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14]}
         return np.array(self.state, dtype=np.float32), {}
 

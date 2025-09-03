@@ -27,27 +27,25 @@ EPISODES = 10000
 SOFT_UPDATE_WEIGHT = 1e-3
 
 # Hyperparam search 1
-LR = 0.0006752145157882616
-BATCH_SIZE = 64
-EPS_START = 0.934795155826079
-EPS_END = 0.0008640759735554643
-EPS_DECAY_EPISODES = 2470
-SOFT_UPDATE_WEIGHT = 0.002227329676128557
-EPISODES = 5000
+# LR = 0.0006752145157882616
+# BATCH_SIZE = 64
+# EPS_END = 0.0008640759735554643
+# EPS_DECAY_EPISODES = 2470
+# SOFT_UPDATE_WEIGHT = 0.002227329676128557
+# EPISODES = 20000
 # Best hyperparameters: {'lr': 0.0006752145157882616, 'batch_size': 64, 'eps_start': 0.934795155826079, 'eps_end': 0.0008640759735554643, 'eps_decay_episodes': 2470, 'soft_update_weight': 0.002227329676128557}
 # Best reward: 6.116301822065696
 
 
-# Hyperparam search 2
-# LR = 0.0021988638310055605
-# BATCH_SIZE = 64
-# EPS_START = 0.9016470282577296
-# EPS_END = 0.005344121921501771
-# EPS_DECAY_EPISODES = 1877
-# SOFT_UPDATE_WEIGHT = 0.00011580270732983362
-# EPISODES = 5000
-# Best hyperparameters: {'lr': 0.0021988638310055605, 'batch_size': 64, 'eps_start': 0.9016470282577296, 'eps_end': 0.005344121921501771, 'eps_decay_episodes': 1877, 'soft_update_weight': 0.00011580270732983362, 'hidden_size': 32, 'num_hidden_layers': 1, 'activation': 'LeakyReLU'}
-# Best reward: 6.110234813373994
+# Incremental reward design
+# 6.093940310019326 and parameters: {'lr': 0.0009330419170559791, 'batch_size': 256, 'eps_end': 0.065890842084809, 'eps_decay_episodes': 2515, 'episodes': 10000, 'soft_update_weight': 0.011645384572984259, 'hidden_size': 256, 'num_hidden_layers': 2, 'activation': 'LeakyReLU'}. Best is trial 13 with value: 6.093940310019326.
+LR = 0.0009330419170559791
+BATCH_SIZE = 256
+EPS_END = 0.065890842084809
+EPS_DECAY_EPISODES = 2515
+SOFT_UPDATE_WEIGHT = 0.011645384572984259
+EPISODES = 10000
+# 6.108287096002524
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -64,11 +62,15 @@ class DQN(nn.Module):
     def __init__(self, input_dim, output_dim):
         super(DQN, self).__init__()
         self.model = nn.Sequential(
-            nn.Linear(input_dim, 32),
-            nn.ReLU(),
-            # nn.Linear(32, 32),
-            # nn.LeakyReLU(),
-            nn.Linear(32, output_dim)
+            # nn.Linear(input_dim, 32),
+            # nn.ReLU(),
+            # nn.Linear(32, output_dim)
+
+            nn.Linear(input_dim, 256),
+            nn.LeakyReLU(),
+            nn.Linear(256, 256),
+            nn.LeakyReLU(),
+            nn.Linear(256, output_dim)
         )
 
     def forward(self, x):
@@ -84,13 +86,14 @@ class ReplayBuffer:
 
     def sample(self, batch_size):
         batch = random.sample(self.buffer, batch_size)
-        states, actions, rewards, dones, next_states = zip(*batch)
+        states, actions, rewards, dones, next_states, next_masks = zip(*batch)
         return (
             states,
             actions,
             rewards,
             dones,
-            next_states
+            next_states,
+            next_masks
         )
 
     def __len__(self):
@@ -98,13 +101,14 @@ class ReplayBuffer:
 
 
 def buffer_to_tensor(buffer):
-    states, actions, rewards, dones, next_states = buffer
+    states, actions, rewards, dones, next_states, next_masks = buffer
     state_tensor = torch.tensor(np.array(states), dtype=torch.float32).to(device)
     action_tensor = torch.tensor(np.array(actions), dtype=torch.int64).to(device)
     rewards = torch.tensor(np.array(rewards), dtype=torch.float32).unsqueeze(1).to(device)
     dones = torch.tensor(np.array(dones), dtype=torch.float32).unsqueeze(1).to(device)
     next_states = torch.tensor(np.array(next_states), dtype=torch.float32).to(device)
-    return state_tensor, action_tensor, rewards, dones, next_states
+    next_masks = torch.tensor(np.array(next_masks), dtype=torch.bool).to(device)
+    return state_tensor, action_tensor, rewards, dones, next_states, next_masks
 
 
 def soft_update(target, source, tau):
@@ -129,17 +133,20 @@ def train():
     # Fill replay buffer
     for _ in range(MIN_REPLAY_SIZE):
         action = env.unwrapped.sample_valid_action()
+        valid_mask = env.task_mask.copy()
         next_state, reward, done, _, _ = env.step(action)
         next_state = flatten_state(next_state)
-        buffer.push((state, action, reward, done, next_state))
+        buffer.push((state, action, reward, done, next_state, valid_mask))
         state = next_state if not done else flatten_state(env.reset()[0])
 
     all_rewards = []
+    all_optimal_rewards = []
 
     for episode in range(EPISODES):
         state = flatten_state(env.reset()[0])
         total_reward = 0
         steps = 0
+        optimal_reward = None
 
         while True:
             # ε-greedy action selection
@@ -154,25 +161,38 @@ def train():
                     valid_mask = torch.tensor(env.task_mask, dtype=torch.bool, device=device)
                     q_values[~valid_mask] = -1e9  # Suppress invalid actions
                     action = q_values.argmax().item()
-
+            valid_mask = env.task_mask.copy()
             next_state, reward, done, _, _ = env.step(action)
             next_state_flat = flatten_state(next_state)
-            buffer.push((state, action, reward, done, next_state_flat))
+            buffer.push((state, action, reward, done, next_state_flat, valid_mask))
             state = next_state_flat
 
             steps += 1
-
             if done:
-                total_reward = -reward
+                # total_reward = -reward
+                total_reward = max(env.unwrapped.robot_end_time, env.unwrapped.human_end_time)
+                optimal_reward = env.unwrapped.optimal_reward
                 break
 
         # Sample and train from buffer
-        states, actions, rewards, dones, next_states = buffer_to_tensor(buffer.sample(BATCH_SIZE))
+        states, actions, rewards, dones, next_states, next_masks = buffer_to_tensor(buffer.sample(BATCH_SIZE))
 
         q_values = policy_net(states).gather(1, actions.unsqueeze(1))
+        # with torch.no_grad():
+        #     max_next_q_values = target_net(next_states).max(1, keepdim=True)[0]
+        #     target_q = rewards + max_next_q_values * (1 - dones)
+
         with torch.no_grad():
-            max_next_q_values = target_net(next_states).max(1, keepdim=True)[0]
-            target_q = rewards + max_next_q_values * (1 - dones)
+            #  1) action selection with ONLINE net
+            q_next_online = policy_net(next_states)
+            q_next_online[~next_masks] = -1e9
+            next_actions = q_next_online.argmax(dim=1, keepdim=True)
+
+            # 2) action evaluation with TARGET net
+            q_next_target = target_net(next_states).gather(1, next_actions)
+            q_next_target = q_next_target * (1.0 - dones)
+            # Double DQN target
+            target_q = rewards + q_next_target
 
         loss = nn.functional.mse_loss(q_values, target_q)
         optimizer.zero_grad()
@@ -189,11 +209,12 @@ def train():
 
         print(f"Episode {episode+1} | Total reward: {total_reward:.2f} | Steps: {steps} | Epsilon: {epsilon:.3f}")
         all_rewards.append(total_reward)
+        all_optimal_rewards.append(optimal_reward)
 
     env.close()
 
     os.makedirs("../output/saved_models", exist_ok=True)
-    torch.save(policy_net.state_dict(), "../output/saved_models/dqn_policy_model_v7_avg.pth")
+    torch.save(policy_net.state_dict(), "../output/saved_models/dqn_policy_model_v7_testing.pth")
 
     # Plotting
     window_size = 100
@@ -212,7 +233,31 @@ def train():
     plt.title("DQN Reward Progress")
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig("../output/plots/dqn_reward_plot.png")
+    plt.savefig("../output/plots/dqn_reward_plot_testing.png")
+    plt.close()
+
+    #####
+    gap_pct = (np.array(rewards_array) - np.array(all_optimal_rewards)) / np.array(all_optimal_rewards) * 100
+
+    plt.figure(figsize=(10, 5))
+    plt.scatter(range(len(gap_pct)), gap_pct, s=8, alpha=0.4, label="Episode % gap (DQN vs. optimal)")
+
+    # Optional: add a rolling mean line to show trend
+    window = 200
+    if len(gap_pct) > window:
+        roll = np.convolve(gap_pct, np.ones(window)/window, mode="valid")
+        plt.plot(range(window-1, window-1+len(roll)), roll, color="red", linewidth=2, label=f"Rolling mean ({window})")
+
+    plt.axhline(0, color="k", linestyle="--", linewidth=1)
+    plt.xlabel("Training episode")
+    plt.ylabel("% over optimal (lower is better)")
+    plt.title("DQN vs Optimal Policy — Gap Over Training")
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig("../output/plots/dqn_optimal_gap_scatter.png", dpi=150)
+    plt.close()
+
 
     print('Mean reward last 1000 episodes:')
     print(np.mean(all_rewards[-1000:]))

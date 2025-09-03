@@ -17,7 +17,7 @@ torch.manual_seed(42)
 torch.cuda.manual_seed_all(42)
 
 # Set operator type for which you are running a comparison
-operator_type = 'avg'
+operator_type = 'improving'
 model_pth = "../output/saved_models/dqn_policy_model_v7_avg.pth"
 
 # Top static policies
@@ -84,11 +84,15 @@ class DQN(nn.Module):
     def __init__(self, input_dim, output_dim):
         super(DQN, self).__init__()
         self.model = nn.Sequential(
-            nn.Linear(input_dim, 32),
-            nn.ReLU(),
-            # nn.Linear(32, 32),
-            # nn.LeakyReLU(),
-            nn.Linear(32, output_dim)
+            # nn.Linear(input_dim, 32),
+            # nn.ReLU(),
+            # nn.Linear(32, output_dim)
+
+            nn.Linear(input_dim, 256),
+            nn.LeakyReLU(),
+            nn.Linear(256, 256),
+            nn.LeakyReLU(),
+            nn.Linear(256, output_dim)
         )
 
     def forward(self, x):
@@ -187,7 +191,9 @@ for episode in range(EPISODES):
         state = flatten_state(next_state)
 
         if done:
-            dqn_rewards.append(-reward)  # negate to match static policy cost
+            # total_reward = -reward
+            total_reward = max(env.unwrapped.robot_end_time, env.unwrapped.human_end_time)
+            dqn_rewards.append(total_reward)  # negate to match static policy cost
             break
 
 env.close()
